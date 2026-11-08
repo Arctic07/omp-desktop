@@ -149,6 +149,10 @@ export const COMMANDS = {
   gitCommitWorkspace: 'commit_workspace',
   gitSyncWorkspace: 'sync_workspace',
   draftCommitMessage: 'draft_commit_message',
+  updateStatus: 'update_status',
+  updateCheck: 'update_check',
+  updateInstall: 'update_install',
+  updateRelaunch: 'update_relaunch',
 } as const
 
 export const SESSION_EVENT_CHANNEL_PREFIX = 'omp:session:'
@@ -163,6 +167,8 @@ export const BROWSER_REVEAL_EVENT = 'browser-reveal'
 export const BROWSER_OPEN_EVENT = 'browser-open'
 /** The coalesced file-watch report (`services/workspace_watch.rs`), named there. */
 export const WORKSPACE_CHANGED_EVENT = 'omp:workspace-changed'
+/** One complete update status per transition (`services/updater.rs`). */
+export const UPDATE_EVENT = 'omp:update'
 
 /**
  * What the tray's forwarding entries ask the window to do (`services/presence.rs`). Each one is the

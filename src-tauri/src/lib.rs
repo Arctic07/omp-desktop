@@ -44,6 +44,10 @@ pub fn run() {
         // looking at the window before it hands a notice to the system, so this plugin is registered
         // for the host's own use - no capability names it, and no webview can call it.
         .plugin(tauri_plugin_notification::init())
+        // The application's own updates (`services::updater`): the plugin is registered for that
+        // service alone. No capability names its commands, so no document can reach the updater
+        // directly; the interface goes through this application's own update commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // What the webview stack may hand a document (see `services::permissions`): the application
         // asks for no device, and a plugin window asks for nothing at all.
         .on_permission_request(|_webview, kind| services::permissions::for_application(kind))
@@ -119,7 +123,12 @@ pub fn run() {
                 services::presence::main_window(app.handle())
                     .is_some_and(|window| services::appearance::system_dark(&window)),
             );
+            // The automatic update check starts after the window and its state exist: it publishes
+            // through `omp:update`, and a document that mounts later reads the same value from
+            // `update_status`.
+            let updater = Arc::clone(&state.updater);
             app.manage(state);
+            updater.start_auto_checks(app.handle().clone());
             services::presence::install_tray(app.handle(), &presence);
             // The window is created hidden (tauri.conf.json) so nothing is on screen before this
             // color is set. It is set through the webview window, which paints both surfaces: the
@@ -321,6 +330,10 @@ pub fn run() {
             commands::terminal::terminal_close,
             commands::terminal::terminal_close_session,
             commands::terminal::terminal_close_workspace,
+            commands::update::update_status,
+            commands::update::update_check,
+            commands::update::update_install,
+            commands::update::update_relaunch,
             commands::browser::browser_open_tab,
             commands::browser::browser_navigate,
             commands::browser::browser_show_tab,
@@ -387,33 +400,9 @@ pub fn run() {
             // The host is a separate process: leaving it behind would leave a program holding the
             // session files, so the application's own exit asks it to leave and waits briefly.
             if let tauri::RunEvent::Exit = event {
-                // The state is absent when the start-up path refused before it was managed (the
-                // store could not be opened): there is nothing to shut down then, and the exit
-                // path must not turn that refusal into a second failure.
-                if let Some(state) = app.try_state::<state::AppState>() {
-                    state.runtime.shutdown_now();
-                    // The shells are this process's own children, so the host's shutdown above does
-                    // not reach them: every live pty is ended here, before the process goes away.
-                    state.terminal.shutdown_all();
-                    // The plugin processes are children too. Each is asked to unload first (a plugin
-                    // gets its `onUnload`), and the whole stop is bounded - a worker that hangs must
-                    // not hold the exit path (plan §6.4).
-                    state.plugin_process.shutdown_all();
-                    // The workspace watch is an OS handle and a thread of this process: the exit
-                    // path ends it here rather than leaving both to the process teardown.
-                    state.workspace_watch.stop();
-                    // Browser guests are child webviews this process hosts; closing them here is
-                    // the quit path's dispose, and it releases every profile controller before
-                    // the window goes away.
-                    if let Some(browser) = &state.browser {
-                        browser.dispose_all();
-                    }
-                }
-                // The run's last record, after everything this process owns has been ended. It is
-                // written past the file's ceiling (`log::end_run`), because the next start's
-                // "did the previous run close?" check reads exactly this line; its absence is what
-                // a hard crash, a kill, or a power loss leaves (`services::crash`).
-                services::log::end_run();
+                // One shutdown sequence, shared with the updater's Windows exit hook: the host and
+                // every child this process owns end before the run's closing log line.
+                services::shutdown::run(app);
             }
             // macOS keeps no tray, so the Dock is the way back to a hidden window: without this
             // the window would stay hidden while the application is still running.

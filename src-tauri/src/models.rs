@@ -4,6 +4,7 @@ pub(crate) mod omp_import;
 pub(crate) mod plugins;
 pub(crate) mod presence;
 pub(crate) mod store;
+pub(crate) mod update;
 
 use serde::{Deserialize, Serialize};
 

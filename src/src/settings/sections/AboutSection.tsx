@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ExternalLink, Info, Terminal } from 'lucide-react'
+import { ExternalLink, Globe, Info, Terminal } from 'lucide-react'
 
 import { runtimeRestart } from '@/api/agent'
 import { appVersion } from '@/api/app'
@@ -17,6 +17,7 @@ import {
   SettingsPath,
   SettingsRow,
 } from '@/settings/parts'
+import { AboutUpdates } from '@/settings/sections/AboutUpdates'
 import { useResourceState } from '@/state/resource'
 import { readEngineStatus, runtimeResource } from '@/state/runtime-store'
 
@@ -53,6 +54,8 @@ const COPY: Localized<AboutCopy> = {
     linksTitle: 'Resources',
     linksDescription: 'Open project resources in your default browser.',
     resources: [
+      { id: 'website', label: 'Official website', href: 'https://omp.auiox.com/' },
+      { id: 'repository', label: 'Project repository', href: 'https://github.com/Arctic07/omp-desktop' },
       { id: 'documentation', label: 'OMP documentation', href: 'https://omp.sh/docs' },
       { id: 'engine-source', label: 'Engine source code', href: 'https://github.com/can1357/oh-my-pi' },
     ],
@@ -67,6 +70,8 @@ const COPY: Localized<AboutCopy> = {
     linksTitle: '资源',
     linksDescription: '在默认浏览器中打开项目资源。',
     resources: [
+      { id: 'website', label: '官网', href: 'https://omp.auiox.com/' },
+      { id: 'repository', label: '项目仓库', href: 'https://github.com/Arctic07/omp-desktop' },
       { id: 'documentation', label: 'OMP 文档', href: 'https://omp.sh/docs' },
       { id: 'engine-source', label: '引擎源码', href: 'https://github.com/can1357/oh-my-pi' },
     ],
@@ -310,6 +315,33 @@ function EngineRow({ label, children }: { label: string; children: ReactNode }) 
   )
 }
 
+/**
+ * GitHub's mark on the settings row's icon grid.
+ *
+ * lucide carries no brand icons, and the project's own repository is one of the resources this page
+ * names; the path is GitHub's published Octicons mark, drawn with `currentColor` so the row's own
+ * muted tone applies.
+ */
+function GithubMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  )
+}
+
+/** The leading icon the two resources this page added wear; the pre-existing rows keep their shape. */
+function resourceIcon(id: string): ReactNode | undefined {
+  switch (id) {
+    case 'website':
+      return <Globe className="size-4" aria-hidden="true" />
+    case 'repository':
+      return <GithubMark className="size-4" />
+    default:
+      return undefined
+  }
+}
+
 /** A value line, in the error tone when the fact it states is a broken one. */
 function valueClass(broken: boolean): string {
   return cn('text-[13px] leading-[19px]', broken ? 'text-destructive' : 'text-foreground')
@@ -393,6 +425,8 @@ export default function AboutSection() {
         </SettingsCard>
       </SettingsGroup>
 
+      <AboutUpdates />
+
       <SettingsGroup title={copy.linksTitle} description={copy.linksDescription}>
         <SettingsCard className="overflow-hidden">
           {copy.resources.map((resource) => (
@@ -404,6 +438,7 @@ export default function AboutSection() {
               className="block border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <SettingsRow
+                icon={resourceIcon(resource.id)}
                 title={resource.label}
                 description={resource.href}
                 control={<ExternalLink className="size-4 text-muted-foreground" aria-hidden="true" />}

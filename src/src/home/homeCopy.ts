@@ -25,11 +25,9 @@ export interface HomeCopy {
   menuLockedHint: string
   /** 视图's one entry: the document is reloaded, the engine's turns are not touched. */
   menuReload: string
-  /** 帮助's two entries: the settings page's About section, and the updater this build has not got. */
+  /** 帮助's two entries: the settings page's About section, and the release feed's own check. */
   menuAbout: string
   menuCheckUpdates: string
-  /** What 检查更新 says while there is no updater behind it. */
-  menuCheckUpdatesPending: string
   windowMinimize: string
   windowMaximize: string
   windowRestore: string
@@ -415,7 +413,6 @@ export const COPY: Localized<HomeCopy> = {
     menuReload: "Reload",
     menuAbout: "About",
     menuCheckUpdates: "Check for updates",
-    menuCheckUpdatesPending: "Updates are not available in this build yet.",
     windowMinimize: "Minimize",
     windowMaximize: "Maximize",
     windowRestore: "Restore",
@@ -681,7 +678,6 @@ export const COPY: Localized<HomeCopy> = {
     menuReload: "刷新",
     menuAbout: "关于",
     menuCheckUpdates: "检查更新",
-    menuCheckUpdatesPending: "这个版本还没有更新通道。",
     windowMinimize: "最小化",
     windowMaximize: "最大化",
     windowRestore: "还原",

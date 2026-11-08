@@ -1,0 +1,114 @@
+# Release pipeline
+#
+# Trigger: push a tag `vX.Y.Z` that matches every APP_VERSION site. The version and publishing
+# contract is `rules.md#release-versions-and-publishing`.
+#
+# The tag is the release decision. This workflow builds the host artifact and the frontend, then
+# `tauri-action` builds the NSIS installer with its updater signature and publishes the release plus
+# `latest.json` — the one feed the application's updater reads.
+#
+# Required repository secrets:
+# - `TAURI_SIGNING_PRIVATE_KEY`: the private half of the key whose public half is in
+#   `src-tauri/tauri.conf.json`. The key lives outside the repository; losing it strands every
+#   installed copy.
+# - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the key's password, empty when it has none.
+#
+# Only Windows is published: the host artifact and the installer this repository builds are the
+# Windows x64 ones. The feed names that platform alone.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+# Least privilege: only the publish step writes the release.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish the Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify the tag matches every version site
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            *-*) echo "::error::prerelease tags are not published to the stable feed"; exit 1 ;;
+          esac
+          node --input-type=module - "${GITHUB_REF_NAME#v}" <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const version = process.argv[2]
+          const json = (file) => JSON.parse(readFileSync(file, 'utf8'))
+          const sites = [
+            ['package.json', json('package.json').version],
+            ['src-tauri/tauri.conf.json', json('src-tauri/tauri.conf.json').version],
+            ['src-tauri/Cargo.toml', /^version = "([^"]+)"/m.exec(readFileSync('src-tauri/Cargo.toml', 'utf8'))?.[1]],
+            ['host/src/constants.ts', /HOST_VERSION = '([^']+)'/.exec(readFileSync('host/src/constants.ts', 'utf8'))?.[1]],
+          ]
+
+          let failed = false
+          for (const [file, found] of sites) {
+            if (found !== version) {
+              console.error(`::error file=${file}::${file} says ${found ?? 'nothing'}, the tag says ${version}`)
+              failed = true
+            }
+          }
+          if (failed) process.exit(1)
+          NODE
+
+      - name: Frontend gates
+        shell: bash
+        run: |
+          pnpm --filter src typecheck
+          pnpm --filter src lint
+          pnpm --filter src test
+
+      - name: Build the host artifact
+        run: pnpm host:install
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: OMP Desktop ${{ github.ref_name }}
+          releaseBody: Windows x64 installer. The application checks this release feed for updates.
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis

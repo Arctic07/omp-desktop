@@ -9,6 +9,7 @@ import { NO_HOVER_GROWTH } from "@/lib/hover-motion";
 import { cn } from "@/lib/utils";
 import { COPY } from "@/home/homeCopy";
 import { MenuBar } from "@/home/MenuBar";
+import { UpdatePill } from "@/home/UpdatePill";
 
 export interface TitleBarProps {
   /** The sidebar's own state, for the toggle's icon and its pressed reading. */
@@ -155,6 +156,8 @@ export function TitleBar({
         onLeaveSettings={onLeaveSettings}
         className="ml-1"
       />
+
+      <UpdatePill />
 
       <div data-tauri-drag-region className="h-full min-w-0 flex-1" />
 

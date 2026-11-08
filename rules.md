@@ -348,6 +348,15 @@ Adding an optional field alone never bumps `PROTOCOL_VERSION`: that would refuse
 
 Four assertions hold before every release: **A1** the four `APP_VERSION` sites agree; **A2** `SCHEMA_VERSION` equals the highest defined `apply_vN` and every `N > 1` has an upgrade test; **A3** the four host artifact locations agree on `sha256` and `bytes` ([Artifact rebuild](#artifact-rebuild)); **A4** `PROTOCOL_VERSION` is equal on both sides and equals `omp-host.json.protocol`.
 
+### Release versions and publishing
+
+- **Semver is the release's own contract.** A `MAJOR` step is a change an older installation cannot read (a protocol or store shape that raises the minimum upgradable version), `MINOR` is a user-visible feature, and `PATCH` is a fix. The tag is `vX.Y.Z` and nothing else; the release workflow refuses a tag that disagrees with any of the four `APP_VERSION` sites.
+- **A prerelease never reaches the stable feed.** `-beta.N` and `-rc.N` builds are local testing artifacts, not releases the workflow publishes: a tag carrying a prerelease suffix is refused, `latest.json` names a stable release only, and a GitHub release marked prerelease is not "latest". The updater checks exactly the one feed named in `tauri.conf.json` (this project's GitHub Releases `latest.json`) and installs only a strictly greater version.
+- **One release, one signature.** The signature invariant is [Engine upgrade and distribution](#engine-upgrade-and-distribution)'s; this lane adds where its halves live: the public key in `tauri.conf.json`, the private key outside the repository (`%USERPROFILE%\.tauri\omp-desktop.key` on its custodian's machine and `TAURI_SIGNING_PRIVATE_KEY` in the release workflow), and the `.sig` beside the NSIS installer (`bundle.createUpdaterArtifacts`). Losing the private key strands every installed copy; rotating it takes a release that ships the new public key.
+- **Publishing is the tag.** Bump the four sites, write the release notes, run the gates, commit, tag `vX.Y.Z`, and push the tag. The tag-triggered workflow builds the host artifact, the frontend, and the NSIS installer, then publishes the release and its `latest.json`. A manual publish performs the same steps and uploads the same files: the installer, its `.sig`, and `latest.json`. Run one build after the bump so `Cargo.lock` records the same version, and commit it with the tag.
+- **Bootstrap.** The first release that carries the updater is installed by hand; every later release updates in place.
+- **Who checks, and when.** A packaged build checks 15 s after start and every 6 h; a development build never does. A failed check is a status the interface words, not a hidden retry. Installing is always the user's press — the title bar's update pill or the About page — and nothing downloads or installs on its own.
+
 ### app.sqlite schema changes
 
 - **Add, never rewrite.** A new column is NULLable or has a deterministic default. A column's name, type, unit, and meaning never change in place: a new meaning gets a new column plus a backfill, and the old one survives until the next major version.
@@ -370,7 +379,7 @@ Four assertions hold before every release: **A1** the four `APP_VERSION` sites a
 - An SDK upgrade is an engine upgrade: update the pinned version and `omp-host.json`'s `sdkVersion`, then run the minimal "old data plus new engine" path — handshake → session list → open a historical session → one prompt.
 - An update package carries three layers: the application, the embedded frontend, and the host artifact. The engine and its runtime are never downloaded or replaced at runtime, and no engine copy is written into user data.
 - Update packages are signed and the client accepts only verified ones. The signing key never enters the repository, logs, or CI output.
-- **Version monotonicity**: a remote version is strictly greater than the local one; re-publishing different content at one version is a release incident.
+- **Version monotonicity**: a remote version is strictly greater than the local one; re-publishing different content at one version is a release incident, and rolling back means publishing a higher version, never re-pointing the feed at an older one.
 - Install replaces files and does not touch data; data migration happens on the new version's first start, per [Startup upgrade and downgrade](#startup-upgrade-and-downgrade).
 - When the protocol or schema changes in a way that cannot be migrated in place, the minimum upgradable version rises and older installations take the reinstall path instead of an in-place update.
 
@@ -462,7 +471,7 @@ A capability ships as three parts: **definition** (the frame in `host/src/protoc
 
 ### Match evidence to the surface
 
-Evidence lands on the surface that changed: a behavior change runs that behavior's test or a real scenario; a protocol change runs `hello → ready → prompt → agent_end` plus the three failure paths; an artifact change runs [Artifact rebuild](#artifact-rebuild)'s checksum and embedded-asset comparison; a documentation change runs `pnpm check:repo` (budgets, references, record formats). Do not run the full suite for an unrelated change, and do not repeat a check that already passed **when nothing changed since** — any edit after a green run re-runs the layer it touched. The standing gates are never waived. This repository has **no CI**, which makes the delivery note the final gate: unexecuted checks are listed one by one, and "should be fine" is not a substitute.
+Evidence lands on the surface that changed: a behavior change runs that behavior's test or a real scenario; a protocol change runs `hello → ready → prompt → agent_end` plus the three failure paths; an artifact change runs [Artifact rebuild](#artifact-rebuild)'s checksum and embedded-asset comparison; a documentation change runs `pnpm check:repo` (budgets, references, record formats). Do not run the full suite for an unrelated change, and do not repeat a check that already passed **when nothing changed since** — any edit after a green run re-runs the layer it touched. The standing gates are never waived. This repository runs no CI on a change — the tag-triggered release workflow is the only automation — which makes the delivery note the final gate: unexecuted checks are listed one by one, and "should be fine" is not a substitute.
 
 ### Coverage is not evidence; tests describe behavior
 
