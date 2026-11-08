@@ -1,0 +1,29 @@
+{
+  "name": "renderer-slots-basic",
+  "version": "0.1.0",
+  "description": "Minimal slot-module plugin: a composer toolbar control and a fenced-block view.",
+  "omp": {
+    "name": "Renderer Slots Basic",
+    "description": "A slot module that draws in the composer toolbar and for its own fenced blocks.",
+    "desktop": {
+      "schemaVersion": 1,
+      "engines": { "ompDesktop": ">=0.1.0" },
+      "i18n": {
+        "en": {
+          "name": "Renderer Slots Basic",
+          "description": "A slot module: one composer toolbar control and one fenced-block view.",
+          "safetyNotes": "Its module runs inside this application's own window, so it can read the page the user is looking at."
+        },
+        "zh": {
+          "name": "插槽示例",
+          "description": "一个插槽模块：一个输入框工具条按钮和一个围栏代码块视图。",
+          "safetyNotes": "它的模块运行在本应用自己的窗口里，因此可以读取用户正在看的页面。"
+        }
+      },
+      "permissions": ["renderer.extension"],
+      "renderer": "desktop/renderer.mjs",
+      "rendererActions": ["composer.insertText", "composer.readDraft"],
+      "rendererCallMethods": ["listSnippets", "insertSnippet"]
+    }
+  }
+}

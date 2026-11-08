@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The omp desktop mark: the engine's pi on a silver plate.
+
+  omp.sh paints the pi in a gradient (https://omp.sh/favicon.svg). This application has no colour in
+  its palette, so the mark has none either: the tile is a silver ramp lit from above (#f4f5f8 down to
+  #c8ccd3) and the pi is drawn on it in the window frame's colour (#0d0d0d). The ramp is a shade of
+  grey, not a hue: it reads as a metal plate at 256px and as a plain light tile at 16px.
+
+  Drawn on a 100 grid so every number below is a percentage of the icon canvas. The tile keeps a 4%
+  margin (an OS icon canvas wants a little air); the pi inside it is 72x58 of the 92 tile, and its
+  leg gap equals its stroke, which is what makes it survive the 16px title bar. The gradient spans
+  the tile itself (y 4 to 96) rather than the canvas, so the full ramp is spent on the plate.
+
+  Keep the artwork in step with src/public/favicon.svg, which is the same drawing.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024">
+  <defs>
+    <linearGradient id="omp-tile" gradientUnits="userSpaceOnUse" x1="50" y1="4" x2="50" y2="96">
+      <stop offset="0" stop-color="#f4f5f8"/>
+      <stop offset="1" stop-color="#c8ccd3"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="92" height="92" rx="22" fill="url(#omp-tile)"/>
+  <g fill="none" stroke="#0d0d0d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 29h56"/>
+    <path d="M34 29v42"/>
+    <path d="M66 29v42"/>
+  </g>
+</svg>

@@ -1,0 +1,32 @@
+{
+  "name": "omp.terminal",
+  "version": "0.2.1",
+  "description": "The built-in terminal: a work-panel tab this application draws itself, and the rules that teach the agent to work in the terminal a workspace has open.",
+  "omp": {
+    "name": "Terminal",
+    "description": "A terminal in the work panel, one shell per workspace. The shell is this application's own; the plugin declares where the tab sits and carries the rules that teach the agent to use it.",
+    "desktop": {
+      "schemaVersion": 1,
+      "permissions": ["ui.view"],
+      "workPanelTabs": [
+        {
+          "id": "terminal",
+          "icon": "terminal",
+          "order": 30,
+          "renderer": "terminal",
+          "title": { "en": "Terminal", "zh": "终端" }
+        }
+      ],
+      "i18n": {
+        "en": {
+          "name": "Terminal",
+          "description": "A terminal in the work panel, one shell per workspace. The shell is this application's own; the plugin declares where the tab sits and carries the rules that teach the agent to use it."
+        },
+        "zh": {
+          "name": "终端",
+          "description": "工作面板里的终端，每个工作区一个 shell。shell 由应用自己托管；本插件声明这个页签的位置，并随包带上教 agent 使用它的规则。"
+        }
+      }
+    }
+  }
+}

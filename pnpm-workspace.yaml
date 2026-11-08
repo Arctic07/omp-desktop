@@ -1,0 +1,9 @@
+# pnpm workspace root. `host` (form B: the SDK host process) is a workspace package so the
+# engine SDK it imports at runtime is declared by its own manifest and pinned by the one
+# repository lockfile - see rules.md §7. `src` is the repository's only frontend. The
+# repository root stays the implicit `.` importer, holding the shared toolchain (typescript,
+# @types/node, @tauri-apps/cli) and the scripts that delegate to `src`, so there is
+# exactly one lockfile and no second host-owned lock.
+packages:
+  - 'host'
+  - 'src'

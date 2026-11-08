@@ -1,0 +1,18 @@
+<!--
+  The window's own icon: the title bar draws this at 16px, and the browser tab uses it too.
+  The artwork is the app icon (src-tauri/icons/logo.svg); keep the two in step.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="omp-tile" gradientUnits="userSpaceOnUse" x1="50" y1="4" x2="50" y2="96">
+      <stop offset="0" stop-color="#f4f5f8"/>
+      <stop offset="1" stop-color="#c8ccd3"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="92" height="92" rx="22" fill="url(#omp-tile)"/>
+  <g fill="none" stroke="#0d0d0d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 29h56"/>
+    <path d="M34 29v42"/>
+    <path d="M66 29v42"/>
+  </g>
+</svg>

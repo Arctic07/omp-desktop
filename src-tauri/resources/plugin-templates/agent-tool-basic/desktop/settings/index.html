@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Tool Basic — About</title>
+    <!--
+      设置页（`settingsDestinations[]`）：插件详情「设置」块里的一个子页签，停靠在工作面板里，
+      和其它停靠页一样是沙箱 iframe —— 无宿主 API，只能 fetch 自己源上的 `/__bridge`。
+      这一页是插件自己的补充说明；插件声明的 `omp.settings` 由宿主渲染成表单，排在它旁边。
+      页面必须自包含（无外部资源），CSP 为 connect-src 'self'，出网请求会被拒绝。
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 14px/1.6 system-ui, "Segoe UI", sans-serif;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      ul {
+        margin: 0 0 12px;
+        padding-left: 18px;
+      }
+      code {
+        font-family: ui-monospace, Consolas, monospace;
+      }
+      p {
+        margin: 0 0 8px;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>About this template</h1>
+    <p>本页是模板自带的设置页示例。宿主会把插件在 <code>omp.settings</code> 里声明的键渲染成表单，排在它旁边：</p>
+    <ul>
+      <li><code>note</code> — 单行文本</li>
+      <li><code>mode</code> — 枚举（<code>safe</code> / <code>fast</code>）</li>
+      <li><code>limit</code> — 数字（1–10，步长 1）</li>
+      <li><code>verbose</code> — 开关</li>
+    </ul>
+    <p>这几个键都是模板示例：照抄形状，把键名、说明与默认值换成你自己插件的设置。</p>
+    <p>
+      它们只是示例也有一层原因：值的读写都归引擎（锁文件 + 项目覆盖），v1 没有给插件代码读取自身设置的通道，
+      所以这个模板扩展模块并不读它们 —— 需要让代码读设置时，先确认引擎提供了对应 API，再接线。
+    </p>
+    <script>
+      // 这一页也可以调用自己源上的 bridge（相对路径，跨平台同一写法）。这里用 `ready` 证明页面被服务到了。
+      fetch("/__bridge?m=ready").then(
+        (response) => console.log("bridge ready:", response.status),
+        (error) => console.warn("bridge unreachable:", String(error)),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "_note": "Edges `scripts/check-arch.mjs` must keep failing on, one per `rule|file|import` triple, as measured when the gate was added on 2026-10-31. A new edge fails; an entry whose edge is gone fails as stale. Empty is the target state.",
+  "entries": [
+    "frontend-lib-not-ui|src/src/lib/error-boundary.tsx|@/components/motion/alert",
+    "frontend-lib-not-ui|src/src/lib/error-boundary.tsx|@/components/motion/button",
+    "frontend-state-not-ui|src/src/state/session-rows.test.ts|../home/sidebar-tree.ts"
+  ]
+}

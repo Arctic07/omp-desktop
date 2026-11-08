@@ -1,0 +1,46 @@
+
+/*
+ * The composer's field: the reader's words and the files they carry, in one flow
+ * (`components/agents/composer-field.tsx`).
+ *
+ * It is a `contenteditable` box rather than a `<textarea>`, because a file has to sit *in* the
+ * sentence it was dropped into and no text input can hold an element. These rules are the ones that
+ * cannot be said in utility classes: the box's own type, the hint drawn from an attribute, and the
+ * drop notice. What draws a file inside it is `styles/file-chip.css`, which the same chip serves a
+ * sent message with.
+ */
+.omp-composer-field {
+  position: relative;
+  padding: 0.375rem 0.5rem;
+  color: var(--foreground);
+  font-size: var(--omp-content-font-size, 0.875rem);
+  line-height: 1.5rem;
+  /* The reader's own line breaks are content: `pre-wrap` is what makes a newline in the draft a new
+     line in the box, and what keeps two spaces from becoming one. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  outline: none;
+  scrollbar-width: none;
+}
+
+.omp-composer-field::-webkit-scrollbar {
+  display: none;
+}
+
+/* The hint. It is an absolutely positioned `::before` rather than a placeholder attribute, which a
+   `contenteditable` has not got, and it is only drawn while the draft is blank: the component writes
+   an empty `data-placeholder` then, and this rule then draws nothing. */
+.omp-composer-field::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0.375rem 0.5rem auto 0.5rem;
+  color: var(--muted-foreground);
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.omp-composer-field[data-placeholder='']::before {
+  content: none;
+}

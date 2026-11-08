@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Panel Basic</title>
+    <!--
+      A panel page is served from the plugin's own origin (`omp-plugin://<key>/…`, or the
+      `http://omp-plugin.<key>/…` form WebView2 needs) in a sandboxed window that has no
+      host API at all. Its one reachable endpoint is the bridge on that same origin, so the
+      page must be self-contained: no CDN, no webfont, no remote image.
+
+      The response CSP is
+        default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
+        img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:;
+        connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'
+      — inline script and style are allowed, `connect-src 'self'` is why the relative
+      `fetch('/__bridge?m=ready')` below works and every https request is refused.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      p {
+        margin: 0 0 12px;
+        opacity: 0.75;
+      }
+      button {
+        padding: 6px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      pre {
+        margin: 12px 0 0;
+        padding: 8px;
+        min-height: 1.5em;
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: rgba(127, 127, 127, 0.14);
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Panel Basic</h1>
+    <p>This window is a sandboxed page from the plugin's own origin. Its only host API is the bridge.</p>
+    <button id="ready" type="button">Call /__bridge?m=ready</button>
+    <pre id="result" role="status" aria-live="polite">Not called yet.</pre>
+    <script>
+      // The bridge sits at this page's own origin, so this spelling is the same on every
+      // platform, and `m=ready` is the method that takes no parameters (`?m=close` is the
+      // other one, and only a panel window may call it).
+      document.getElementById("ready").addEventListener("click", async () => {
+        const result = document.getElementById("result");
+        result.textContent = "Calling…";
+        try {
+          const response = await fetch("/__bridge?m=ready");
+          result.textContent = response.status + " " + (await response.text());
+        } catch (error) {
+          result.textContent = "fetch failed: " + String(error);
+        }
+      });
+    </script>
+  </body>
+</html>

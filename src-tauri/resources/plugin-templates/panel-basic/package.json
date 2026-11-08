@@ -1,0 +1,36 @@
+{
+  "name": "panel-basic",
+  "version": "0.1.0",
+  "description": "Minimal desktop-only plugin: one panel window that talks to the host bridge.",
+  "omp": {
+    "name": "Panel Basic",
+    "description": "Minimal desktop-only plugin: a panel window and the host bridge.",
+    "desktop": {
+      "schemaVersion": 1,
+      "engines": { "ompDesktop": ">=0.1.0" },
+      "i18n": {
+        "en": {
+          "name": "Panel Basic",
+          "description": "A minimal panel plugin: one sandboxed window that talks to the host bridge.",
+          "safetyNotes": "This template declares no file, network or clipboard reach."
+        },
+        "zh": {
+          "name": "面板示例",
+          "description": "最小面板插件：一个沙箱窗口，只与宿主 bridge 通信。",
+          "safetyNotes": "本模板未声明任何文件、网络或剪贴板权限。"
+        }
+      },
+      "permissions": ["ui.panel"],
+      "panels": [
+        {
+          "id": "main",
+          "title": { "en": "Panel Basic", "zh": "面板示例" },
+          "entry": "desktop/panel/index.html",
+          "width": 420,
+          "height": 340,
+          "resizable": true
+        }
+      ]
+    }
+  }
+}

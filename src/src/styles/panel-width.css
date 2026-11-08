@@ -1,0 +1,23 @@
+/*
+ * The work column's width, as a value the browser can interpolate.
+ *
+ * `AnimatedSidebar` morphs the width it is told (`var(--sidebar-width)`); it cannot morph a *change
+ * of the variable itself* — the animation target is the same string in both states, so there is
+ * nothing for it to interpolate. An unregistered custom property is not animatable either (its
+ * computed value is just a token stream). Registering it as a length makes the variable a value a
+ * transition can carry, and both surfaces that read it — the column's own width and the panel inside
+ * it — follow the interpolated value frame by frame.
+ *
+ * The transition is only on while the column's expand switch is moving it
+ * (`components/workspace/right-sidebar.tsx`): dragging the column's edge must stay glued to the
+ * pointer, not trail a spring.
+ */
+@property --sidebar-width {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 384px;
+}
+
+.omp-sidebar-width-animated {
+  transition: --sidebar-width 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}

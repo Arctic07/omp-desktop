@@ -1,0 +1,311 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* The composer's field (`components/agents/composer-field.tsx`). */
+@import "./styles/composer-field.css";
+/* The chip a file is drawn as, in the field and in a message that has been sent
+   (`home/AttachmentChip.tsx`). */
+@import "./styles/file-chip.css";
+/* The work column's width as an animatable length (`components/workspace/right-sidebar.tsx`). */
+@import "./styles/panel-width.css";
+/* MiSans (Xiaomi, free for commercial use), the variable cut, subsetted per unicode range by the
+   `misans` npm package. Vendored rather than depended on: the app has to draw text offline, and
+   the package's other nine families and nine static weights are 48 MB of files we never render.
+   See `src/fonts/misans/README.md`. */
+@import "./fonts/misans/MiSansVF.min.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* A device that can hover.
+   The turn footer's metrics are hidden on every turn the reader has moved past and revealed by
+   pointing at the row they belong to — a rule *about* hovering, so a screen that cannot hover must
+   never hide them at all. Tailwind's own `hover:` variant already carries that guard, but it says
+   "hovered", not "can hover": this is the same condition on its own, for the element that is hidden
+   *until* something is hovered. */
+@custom-variant can-hover (@media (hover: hover));
+
+/* beUI's vendored components class their scroll containers `scrollbar-hide`; beui.dev
+   defines that utility on its own site but the shadcn registry does not ship it, so
+   without this the containers fall back to the native scrollbar. Same behaviour as
+   the preset's `no-scrollbar`. */
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    /* MiSans draws both scripts with one set of strokes and one weight axis, which is what the
+       previous stack could not do: it handed Latin to Segoe UI and Chinese to Microsoft YaHei, and
+       the two faces disagreed about weight and edge. The system stack stays behind MiSans as the
+       fallback for characters outside the vendored subsets and for the moment before they load. */
+    --font-sans: 'MiSans VF', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+        'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', Menlo,
+        Courier, 'PingFang SC', 'Microsoft YaHei', monospace;
+    /* The desktop's own three surfaces: the window frame, the panes beside the conversation, and the
+       composer's field. They are the application's chrome rather than the content palette, so they
+       carry a small palette of their own (`--omp-*`, one pair per palette below) instead of borrowing
+       `--background` / `--card`: the chrome's steps are shallower than the content palette's, and
+       they must invert with the theme. They used to be fixed dark values, which is why a light
+       palette painted its dark ink on near-black chrome. */
+    --color-window-frame: var(--omp-window-frame);
+    --color-pane: var(--omp-pane);
+    --color-field: var(--omp-field);
+    /* The reader's own message bubble. beUI's `solid` variant paints a bubble with `--foreground`,
+       which is an inverted block; this is the raised one the design asks for — a step up off the pane
+       in either palette, with ink that stays readable on it. */
+    --color-bubble-user: var(--omp-bubble-user);
+    --color-bubble-user-ink: var(--omp-bubble-user-ink);
+    /* The window frame's own ink, and what it rests at when nothing is pointing at it — the menu bar
+       and the window controls. A step below the frame's ink, brightening to it on hover, is the whole
+       of their state. */
+    --color-titlebar-ink: var(--omp-titlebar-ink);
+    --color-titlebar-muted: var(--omp-titlebar-muted);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+    /* The running row's mark. A brand blue, not a semantic colour: "this conversation is working"
+       is the one state the rail draws in an accent of its own. Each palette gets the value its own
+       rail needs — deepened here so a 1.5px ring still reads on white, lifted in `.dark` so it does
+       not sink into the near-black one. */
+    --omp-running: #1a7cf0;
+
+    /* The desktop's own chrome, as a pair per palette (`--color-*` above map onto these). Light runs
+       the dark hierarchy backwards: the frame is the darkest step, a pane sits a step in from it, and
+       the composer's field is the brightest — the raised surface — which is what the dark palette does
+       with #0d0d0d / #121212 / #1f1f1f. */
+    --omp-window-frame: oklch(0.955 0 0);
+    --omp-pane: oklch(0.985 0 0);
+    --omp-field: oklch(1 0 0);
+    /* The reader's own message bubble: one step down off the pane, with the palette's ordinary ink. */
+    --omp-bubble-user: oklch(0.93 0 0);
+    --omp-bubble-user-ink: oklch(0.205 0 0);
+    --omp-titlebar-ink: oklch(0.269 0 0);
+    --omp-titlebar-muted: oklch(0.556 0 0);
+}
+
+.dark {
+    /* No text in this application is painted at full white. The palette shipped with `oklch(0.985 0 0)`
+       — #fafafa, white to the eye — and against these near-black surfaces it glares instead of
+       ranking: a session title, a settings label and a line of the conversation all came out equally
+       bright, which is what made the strokes read as cut rather than drawn. #d3d3d3 is the brightest
+       ink here; everything below it keeps its own step down. */
+    --ink: #d3d3d3;
+    --background: oklch(0.145 0 0);
+    --foreground: var(--ink);
+    --card: oklch(0.205 0 0);
+    --card-foreground: var(--ink);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: var(--ink);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: var(--ink);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: var(--ink);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: var(--ink);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: var(--ink);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: var(--ink);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+
+    /* The chrome's own palette (see `:root`): the frame, a pane, the field, the reader's bubble and
+       the frame's ink, as this palette has drawn them since the app's first window. */
+    --omp-window-frame: #0d0d0d;
+    --omp-pane: #121212;
+    --omp-field: #1f1f1f;
+    --omp-bubble-user: #292929;
+    --omp-bubble-user-ink: var(--ink);
+    --omp-titlebar-ink: var(--ink);
+    --omp-titlebar-muted: #8f8f8f;
+    /* The running row's mark, lifted a step off #1a88ff so the thin spinner ring keeps its hue
+       without sinking into the near-black rail. */
+    --omp-running: #3d9bff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  /* The document is exactly the window and never scrolls.
+     Without this the shell is a scrolling document: a two-finger pan inside a pane that has reached
+     its end chains out of it and carries the whole frame — title bar included — up and down, which
+     looks like the application being dragged around. Only the panes scroll, and each of them stops
+     at its own edge. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+  /* Tailwind v4 leaves buttons on the default arrow cursor. beUI's components (and the
+     preset's own) are built against beui.dev's stylesheet, which gives every enabled
+     button the pointer — this is that rule, and the one shadcn's `--pointer` option adds. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+    }
+}
+
+/*
+ * The document-level preferences the General and Appearance pages own (`state/app-settings`).
+ *
+ * They are read by the stylesheet rather than by a component, which is why they are one custom
+ * property and two attribute selectors on `<html>`/`<body>`: the store writes them, and nothing else
+ * in the app has to know they exist. Each one is additive — with the default choice nothing below
+ * changes what the client looks like.
+ */
+
+:root {
+  /* The conversation's reading size. The store overrides this on `<html>`; the value here is what
+     the client draws with when no choice has been stored, and the fallback the reading text uses. */
+  --omp-content-font-size: 0.875rem;
+
+  /* The conversation's lane: the one box the composer's field and every transcript row share. Both
+     surfaces centre it in the column with the same side padding, so the two stay flush with each
+     other at every width the right column leaves behind. */
+  --omp-conversation-lane: 48rem;
+}
+
+/* Reduced motion. Two conditions, one outcome, because they mean the same thing to a reader who
+   asked for less movement: the appearance setting, and the operating system's own preference.
+   Durations are shortened rather than zeroed — a `0s` transition still fires its `transitionend`,
+   while a duration this short is imperceptible — and `animation-iteration-count` drops to one so a
+   blinking status keeps its final frame instead of looping forever. */
+body[data-omp-reduce-motion='true'] *,
+body[data-omp-reduce-motion='true'] *::before,
+body[data-omp-reduce-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body *,
+  body *::before,
+  body *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Compact conversations: the composer keeps its rows and loses the air around them, which is what
+   the density setting means — the reader asked for more conversation per screen. The two class
+   names are on the composer's own frame and stack (`home/ConversationComposer.tsx`). */
+body[data-omp-conversation-density='compact'] .omp-composer-frame {
+  padding-block: 0.5rem;
+}
+
+body[data-omp-conversation-density='compact'] .omp-composer-stack {
+  gap: 0.375rem;
+}
+
+/* The startup loader's 3×3 grid (the master desktop's `LoadingGrid`, beautifului's Drive
+   variant): one cell's light sweeps out from the middle row. The delays are set per cell by
+   `components/agents/loading-states/loading-grid.tsx`. */
+@keyframes omp-pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+}

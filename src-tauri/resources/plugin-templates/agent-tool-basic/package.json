@@ -1,0 +1,72 @@
+{
+  "name": "agent-tool-basic",
+  "version": "0.1.0",
+  "description": "Minimal agent-side plugin: an extension module, one custom tool and a settings page.",
+  "omp": {
+    "name": "Agent Tool Basic",
+    "description": "Minimal agent-side plugin: an extension module, a custom tool and a settings page.",
+    "extensions": ["./index.ts"],
+    "settings": {
+      "note": {
+        "type": "string",
+        "description": "Template example: a single-line text setting",
+        "default": ""
+      },
+      "mode": {
+        "type": "enum",
+        "description": "Template example: one of the declared values",
+        "values": ["safe", "fast"],
+        "default": "safe"
+      },
+      "limit": {
+        "type": "number",
+        "description": "Template example: a bounded number setting",
+        "default": 3,
+        "min": 1,
+        "max": 10,
+        "step": 1
+      },
+      "verbose": {
+        "type": "boolean",
+        "description": "Template example: a switch",
+        "default": false
+      }
+    },
+    "desktop": {
+      "schemaVersion": 1,
+      "engines": { "ompDesktop": ">=0.1.0" },
+      "i18n": {
+        "en": {
+          "name": "Agent Tool Basic",
+          "description": "An extension module, one custom tool and a settings page.",
+          "safetyNotes": "Its extension module and tool module run inside the agent process with the agent's own privileges.",
+          "settings": {
+            "note": "Template example: a single-line text setting",
+            "mode": "Template example: one of the declared values",
+            "limit": "Template example: a bounded number setting",
+            "verbose": "Template example: a switch"
+          }
+        },
+        "zh": {
+          "name": "代理工具示例",
+          "description": "一个扩展模块、一个自定义工具，加一个设置页。",
+          "safetyNotes": "扩展模块与工具模块在 agent 进程内以 agent 自身的权限运行。",
+          "settings": {
+            "note": "模板示例：单行文本设置",
+            "mode": "模板示例：在声明的取值里选一个",
+            "limit": "模板示例：有边界约束的数字设置",
+            "verbose": "模板示例：开关"
+          }
+        }
+      },
+      "permissions": ["agent.extension", "ui.settings"],
+      "settingsDestinations": [
+        {
+          "id": "about",
+          "title": { "en": "About this template", "zh": "关于本模板" },
+          "entry": "desktop/settings/index.html"
+        }
+      ]
+    }
+  }
+}

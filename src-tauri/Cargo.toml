@@ -1,0 +1,114 @@
+[package]
+name = "omp_desktop"
+version = "0.1.0"
+description = "Omp Desktop"
+authors = ["OMP"]
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "omp_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+keyring = { version = "3", default-features = false }
+# The workspace watch is this application's own, not Tauri's: the work panel refreshes itself from
+# the file system it is showing (`services::workspace_watch`), so the OS notification API is bound
+# here rather than through a Tauri plugin.
+notify = "8.2"
+portable-pty = "0.9"
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "0.10", default-features = false }
+# `unstable` is what makes `Manager::get_window` exist: the tray, the Dock, the taskbar flash and
+# the plugin bridge look the main window up as a window rather than as a webview window
+# (`services::presence::main_window`), and that lookup is gated behind this feature.
+tauri = { version = "2", features = ["tray-icon", "unstable"] }
+tauri-plugin-dialog = "2"
+# The OS half of a plugin's `notify` (spec §6.2): a plugin page asks the host, and the host decides
+# whether the user is looking at the window at all before it hands the notice to the system.
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["sync", "time", "rt"] }
+# Deflate-only: the local plugin package (`.omp.zip` / `.piplug`) is read entry by entry, and the
+# guards around it are this application's own (`services::plugins::package`), so none of the crate's
+# platform extras (AES, bzip2, zstd, lzma) are compiled in.
+zip = { version = "8", default-features = false, features = ["deflate"] }
+# `Win32_Foundation` is here for `CloseHandle` and the `HANDLE`/`BOOL` types it is declared with:
+# the log retention sweep asks the OS whether a pid is still running before it removes that
+# process's log (`services::log_retention`).
+windows-sys = { version = "0.59", features = [
+    "Win32_Globalization",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
+    # `RtlLookupFunctionEntry` / `RtlVirtualUnwind` / `GetThreadContext`: the main-thread
+    # watchdog's stack walk (`services::main_thread`), which needs the unwind tables of the images
+    # already loaded and nothing else. `MiniDumpWriteDump` and `SetUnhandledExceptionFilter` come
+    # from the same module for the native fault handler (`services::crash`); `RtlPcToFileHeader`
+    # names the faulting module.
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    # `GetProcessMemoryInfo`: the engine host's resident size, sampled by `host::memory_guard` - the
+    # runtime offers no heap ceiling the host would honour (`services::runtime::host::memory_guard`).
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    # `ShellExecuteW` lives behind this one (windows-sys gates items per module, and this item's gate
+    # is the *parent* module of the one it is declared in): naming it here is what keeps the shell
+    # launch working when some other dependency stops enabling it transitively, which is exactly what
+    # happened once before.
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    # `CreateFileW` is gated on this module's neighbour, and `WriteFile` on `Win32_System_IO`: both
+    # are the crash handler's own append path (`services::crash`), which cannot go through `std::fs`
+    # while the log's mutex may be held by the thread that just faulted.
+    "Win32_Security",
+    "Win32_System_IO",
+] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# The file drop target is the application's own (`services::file_drop`): it replaces the one Tauri
+# registers with a reader that also understands the `text/plain` paths a Chromium editor drags out,
+# and that needs the OLE drag-drop interfaces and a handful of Win32 calls. `windows-sys` (above)
+# carries no COM interface implementations, so this is the same `windows` build the winit/WebView2
+# stack already compiles at this exact version - enabling only the modules used here.
+# `#[implement]` expands to paths through `windows_core`, so the crate has to be a direct
+# dependency of this package for the macro to resolve it (the same pair wry and webview2-com use).
+windows-core = "0.62"
+# The main webview's `AcceleratorKeyPressed` event, which is how `Ctrl+F` is taken away from the
+# webview's own find dialog and left to the file preview (`services::webview_keys`). The handler
+# and the event-args interfaces live here rather than in `windows`. Pinned to the build wry 0.57
+# already compiles.
+webview2-com = "0.39"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service"] }
+
+# Line tables in the release build, for the evidence a release alone can produce: a stall's
+# `module+0xoffset` frames (`services/main_thread`) and a minidump (`services/crash`) are only
+# resolvable against the PDB of the exact artifact. The PDB stays in `target/release/` and is kept
+# with the artifact; it is never bundled into the installer. `1` is line tables only - enough to
+# name the place, without the size full debug info would add to every build.
+[profile.release]
+debug = 1

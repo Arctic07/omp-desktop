@@ -1,0 +1,54 @@
+{
+  "_note": "Wire-level frames both decoders must read identically. `host/src/protocol/frames.test.ts` reads this file at test time and `src-tauri/src/services/runtime/protocol.rs` includes it with `include_str!`, so a change to either decoder that disagrees on these bytes fails a test. The chunked vector splits the payload inside the emoji's four-byte UTF-8 sequence: a decoder that joins chunk text instead of chunk bytes cannot reassemble it.",
+  "vectors": [
+    {
+      "name": "plain frame",
+      "lines": [
+        "{\"type\":\"agent_start\",\"sessionId\":\"s1\"}"
+      ],
+      "expect": {
+        "type": "agent_start",
+        "sessionId": "s1"
+      }
+    },
+    {
+      "name": "two chunks split inside a multi-byte character",
+      "lines": [
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v1\",\"index\":0,\"count\":2,\"byteLength\":35,\"data\":\"eyJ0eXBlIjoiYWdlbnRfZW5kIiwidGV4dCI6IvCf\"}",
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v1\",\"index\":1,\"count\":2,\"byteLength\":35,\"data\":\"mIB4In0=\"}"
+      ],
+      "expect": {
+        "type": "agent_end",
+        "text": "😀x"
+      }
+    },
+    {
+      "name": "chunk payload is not base64",
+      "lines": [
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v2\",\"index\":0,\"count\":1,\"byteLength\":4,\"data\":\"!!!!\"}"
+      ],
+      "error": "base64"
+    },
+    {
+      "name": "chunk payload is empty",
+      "lines": [
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v3\",\"index\":0,\"count\":1,\"byteLength\":4,\"data\":\"\"}"
+      ],
+      "error": "payload is empty"
+    },
+    {
+      "name": "sequence delivers fewer bytes than declared",
+      "lines": [
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v4\",\"index\":0,\"count\":1,\"byteLength\":4,\"data\":\"YWJj\"}"
+      ],
+      "error": "declared"
+    },
+    {
+      "name": "reassembled payload is not a JSON object",
+      "lines": [
+        "{\"type\":\"rpc_chunk\",\"chunkId\":\"v5\",\"index\":0,\"count\":1,\"byteLength\":2,\"data\":\"W10=\"}"
+      ],
+      "error": "JSON object"
+    }
+  ]
+}

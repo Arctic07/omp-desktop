@@ -1,0 +1,9 @@
+{
+  "name": "skill-pack",
+  "version": "0.1.0",
+  "description": "Minimal engine-only plugin: one skill and one slash command, no code.",
+  "omp": {
+    "name": "Skill Pack",
+    "description": "One skill and one slash command, discovered from the conventional directories."
+  }
+}

@@ -1,0 +1,43 @@
+diff --git a/dist/types/error/flags.d.ts b/dist/types/error/flags.d.ts
+index a149dae27c90b12315b9be6d99266ce6e7385742..b3c8c54c35be0208498f9ed8f3e1ef3d11022239 100644
+--- a/dist/types/error/flags.d.ts
++++ b/dist/types/error/flags.d.ts
+@@ -44,6 +44,12 @@ export declare const PYTHON_HTTP2_STREAM_RESET_PATTERN: RegExp;
+ export declare const PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN: RegExp;
+ /** reqwest body-frame failures forwarded by the Codex HTTP proxy. */
+ export declare const CODEX_HTTP_BODY_READ_ERROR_PATTERN: RegExp;
++/**
++ * Go `net` transport failures forwarded verbatim by a Go relay or proxy: the
++ * `net.OpError` wording (`read tcp a:b->c:d: read: …`), a reversed
++ * `error reading stream: …`, and the syscall text itself.
++ */
++export declare const GO_NET_TRANSPORT_ERROR_PATTERN: RegExp;
+ /** Exact HTTP request-body-read timeout diagnostic. */
+ export declare function isRequestBodyReadTimeout(status: number | undefined, message: string | undefined): boolean;
+ /** Exact pre-output Responses 408 that needs a changed-request recovery path. */
+diff --git a/src/error/flags.ts b/src/error/flags.ts
+index 2a2f0102fa80ec50181d2d2cd7c32d13230b46bf..9bf971b5af4fd11783d2628f68764c3c779dcca2 100644
+--- a/src/error/flags.ts
++++ b/src/error/flags.ts
+@@ -176,6 +176,13 @@ export const PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN =
+ 	/peer closed connection without sending complete message body \(incomplete chunked read\)/;
+ /** reqwest body-frame failures forwarded by the Codex HTTP proxy. */
+ export const CODEX_HTTP_BODY_READ_ERROR_PATTERN = /\btransport error reading codex response body\b/i;
++/**
++ * Go `net` transport failures forwarded verbatim by a Go relay or proxy: the
++ * `net.OpError` wording (`read tcp a:b->c:d: read: …`), a reversed
++ * `error reading stream: …`, and the syscall text itself.
++ */
++export const GO_NET_TRANSPORT_ERROR_PATTERN =
++	/(?:read|write) tcp [^\s:]+:\d+->[^\s:]+:\d+: (?:read|write): |\berror reading stream\b|\bconnection reset by peer\b/i;
+ 
+ const RESPONSES_REQUEST_BODY_READ_TIMEOUT_PATTERN = /\btimed out reading request body\b/i;
+ 
+@@ -589,6 +596,7 @@ function isTransientErrorText(text: string): boolean {
+ 		isStreamReadErrorText(text) ||
+ 		PYTHON_HTTP2_STREAM_RESET_PATTERN.test(text) ||
+ 		PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN.test(text) ||
++		GO_NET_TRANSPORT_ERROR_PATTERN.test(text) ||
+ 		isStreamEnvelopeTruncationText(text) ||
+ 		TRANSIENT_TRANSPORT_PATTERN.test(text)
+ 	);

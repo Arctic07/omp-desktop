@@ -1,0 +1,47 @@
+{
+  "name": "omp-tauri-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "pnpm --filter src dev",
+    "build": "pnpm --filter src build",
+    "preview": "pnpm --filter src preview",
+    "typecheck": "pnpm --filter src typecheck",
+    "test": "pnpm --filter src test",
+    "lint": "pnpm --filter src lint",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:build": "node scripts/tauri-build.mjs",
+    "tauri:build:raw": "tauri build",
+    "clean:build-cache": "node scripts/clean-build-cache.mjs",
+    "host:build": "bun run host/build.ts",
+    "host:install": "bun run host/build.ts --install",
+    "check:upstream": "bun run scripts/check-upstream.mjs",
+    "check:docs": "node scripts/check-doc-budget.mjs",
+    "check:links": "node scripts/check-doc-links.mjs",
+    "check:size": "node scripts/check-file-size.mjs",
+    "check:notes": "node scripts/check-note-format.mjs",
+    "check:arch": "node scripts/check-arch.mjs",
+    "check:public": "node scripts/check-public.mjs",
+    "check:repo": "node scripts/check-public.mjs && node scripts/check-doc-budget.mjs && node scripts/check-doc-links.mjs && node scripts/check-file-size.mjs && node scripts/check-note-format.mjs && node scripts/check-arch.mjs",
+    "tauri:build:bundle": "node scripts/tauri-build.mjs --config src-tauri/tauri.bundle.conf.json"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.16.0",
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  },
+  "workspaces": [
+    "host",
+    "src"
+  ],
+  "pnpm": {
+    "patchedDependencies": {
+      "@oh-my-pi/pi-ai@18.16.0": "patches/@oh-my-pi__pi-ai@18.16.0.patch",
+      "@oh-my-pi/pi-coding-agent@18.16.0": "patches/@oh-my-pi__pi-coding-agent@18.16.0.patch"
+    }
+  }
+}

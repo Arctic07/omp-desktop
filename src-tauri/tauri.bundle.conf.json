@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [],
+    "resources": {
+      "binaries/bundle": "bundle",
+      "resources/plugin-templates": "plugin-templates",
+      "resources/builtin-browser-marketplace": "builtin-browser-marketplace"
+    }
+  }
+}

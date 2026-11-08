@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Omp Desktop</title>
+    <!--
+      The start-up shell lives in this document because `src/main.tsx` is a module, and a module
+      arrives after the first paint: whatever is left to that path opens the window on an empty
+      frame until the bundle is fetched, parsed and mounted - which is the white flash this shell
+      and the `<style>` below remove. The arrangement predates the React port (the Vue front end
+      kept it in the root `index.html`); what changed is where the theme comes from.
+    -->
+    <script>
+      /*
+       * Which theme this document answers for itself, resolved before the first paint.
+       *
+       * This cannot ask `next-themes` (`src/main.tsx`): that is a module, and this answer has to
+       * exist before the first frame. It reads the same storage that provider reads - the `theme`
+       * key, holding `light` / `dark` / `system` - and resolves `system` the way it does, against
+       * `prefers-color-scheme`. Nothing stored means the provider's own `defaultTheme`, which is
+       * `dark`. The motion half reads the document `src/src/state/app-settings.ts` owns, with the
+       * same fallback the store uses.
+       *
+       * This answer is the document's own, and it is only the entrance's fallback: the storage it
+       * reads is a webview profile the application does not own and can be stale or gone, while the
+       * theme a start must draw with is the record in `app.sqlite` the desktop painted the window
+       * from. The entrance therefore paints nothing until `src/main.tsx` has adopted that record
+       * and raised the paint gate (the last rule of the stylesheet below). What this script settles
+       * before then is the palette class - `src/src/index.css` carries both palettes on one set of
+       * properties, `:root` light and `.dark` dark - for a page whose application never runs, and
+       * for the frames the application is still loading in.
+       */
+      (function () {
+        var storedTheme = null
+        var settings = null
+        try {
+          storedTheme = window.localStorage.getItem('theme')
+          settings = JSON.parse(window.localStorage.getItem('omp-desktop.settings') || 'null')
+        } catch {
+          // Storage can be unavailable (or hold a document this build cannot read); the defaults
+          // below answer for both halves.
+        }
+        var theme =
+          storedTheme === 'light' || storedTheme === 'dark'
+            ? storedTheme
+            : storedTheme === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : 'dark'
+        document.documentElement.setAttribute('data-omp-startup-theme', theme)
+        /*
+         * The palette class goes on the document *here*, not when `next-themes` mounts.
+         *
+         * `src/src/index.css` carries both palettes as the same custom properties: `:root` is the
+         * light one (`--background: oklch(1 0 0)`, white) and `.dark` overrides them. That
+         * stylesheet is a `<link>` in `<head>` in the built application, so it is applied for the
+         * *first paint*, while `next-themes` (a module, inside React) only adds the class after the
+         * first commit - and this document paints `var(--background, …)` on `html`, on the shell and
+         * behind the application in the meantime. Without the class those frames are drawn in the
+         * light palette: the loading mark sits on a white page for a blink (2026-10-27, reader
+         * report: 「启动时加载动画会白色闪烁一下」).
+         *
+         * The class is the same one `next-themes` will set from the same stored value, so the two
+         * agree by construction: this is that decision made one frame earlier, not a second one.
+         * `src/main.tsx` replaces it with the record's answer before the paint gate opens.
+         */
+        document.documentElement.classList.add(theme)
+        document.documentElement.setAttribute(
+          'data-omp-startup-motion',
+          settings && settings.reduceMotion === true ? 'reduce' : 'run',
+        )
+      })()
+    </script>
+    <style>
+      /*
+       * The colours the entrance is drawn in, in two steps.
+       *
+       * `--omp-startup-mode-*` is the pair this document can answer for itself, from the theme the
+       * script above resolved: what a page whose application never runs is painted in, and the
+       * fallback for the frames before `src/src/index.css` applies.
+       *
+       * `--omp-startup-surface` / `--omp-startup-ink` are what the entrance actually wears - the
+       * palette's own `--background` / `--foreground` (`src/src/index.css` in `:root` and `.dark`,
+       * and any plugin theme's tokens, written into `:root` after it). The plate is the theme's ink
+       * and the glyph is cut out of the theme's background, the way `src-tauri/icons/logo.svg`
+       * draws them, so a contributed theme paints the entrance too and the mark cannot be drawn in
+       * a palette other than the one the application is painting.
+       */
+      :root {
+        --omp-startup-mode-surface: #ffffff;
+        --omp-startup-mode-ink: #0a0a0a;
+      }
+
+      html[data-omp-startup-theme='dark'] {
+        --omp-startup-mode-surface: #0a0a0a;
+        --omp-startup-mode-ink: #d3d3d3;
+      }
+
+      html {
+        --omp-startup-surface: var(--background, var(--omp-startup-mode-surface));
+        --omp-startup-ink: var(--foreground, var(--omp-startup-mode-ink));
+      }
+
+      /*
+       * The application is painted behind the shell all along, held at `opacity: 0`, so revealing
+       * it while the mark fades would put the loading page and the content on screen together.
+       * `opacity` rather than `visibility`, because an unpainted box would cost the reveal a frame
+       * of its own. The wait always ends - the shell's own hand-over or its ceiling - so nothing
+       * can leave this at 0.
+       */
+      #root {
+        height: 100%;
+        opacity: 0;
+      }
+
+      body.omp-startup-ready #root {
+        opacity: 1;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      #omp-startup {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* The background comes from the paint gate at the end of this block: an overlay painted
+           before the application has said which palette it drew with is the wrong colour on some
+           frame of some start. A plugin theme's own `css` may go further and animate
+           `#omp-startup`, the mark or the shell. */
+        transition: opacity 0.16s ease;
+      }
+
+      /*
+       * The mark fades to the background the document has painted since its first byte; the overlay
+       * stays in place and keeps the pointer until the frame that reveals the application takes it
+       * away.
+       */
+      body.omp-startup-leaving #omp-startup {
+        opacity: 0;
+      }
+
+      /*
+       * The mark alone, at the size a window's opening is worth - no tile behind the entrance. The
+       * two animations live on two elements so each has one owner: both animate `opacity`, and two
+       * animations of one property on one element are composed by declaration order, which is not
+       * a rule a start-up surface should rest on. Both are declared by the paint gate below, so the
+       * entrance starts on the frame the palette is known rather than on the frame this document is
+       * parsed.
+       */
+      .omp-startup-shell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 112px;
+        height: 112px;
+        transform: scale(0.72);
+        opacity: 0;
+        transform-origin: center;
+      }
+
+      /* The mark breathes for as long as the shell is up, in the palette the application is
+         painting: the plate is the theme's ink and the glyph is cut out of the theme's background. */
+      .omp-startup-mark {
+        width: 112px;
+        height: 112px;
+      }
+
+      @keyframes omp-startup-pop {
+        0% {
+          opacity: 0;
+          transform: scale(0.72);
+        }
+
+        38% {
+          opacity: 1;
+          transform: scale(1.045);
+        }
+
+        58% {
+          transform: scale(0.985);
+        }
+
+        76% {
+          transform: scale(1.008);
+        }
+
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes omp-startup-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      /*
+       * Both ways a reader can ask for less movement - the appearance setting, read by the script
+       * above, and the platform's own preference - leave the mark at rest.
+       */
+      html[data-omp-startup-motion='reduce'] #omp-startup {
+        transition: none;
+      }
+
+      html[data-omp-startup-motion='reduce'] .omp-startup-shell,
+      html[data-omp-startup-motion='reduce'] .omp-startup-mark {
+        animation: none;
+        opacity: 1;
+        transform: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #omp-startup {
+          transition: none;
+        }
+
+        .omp-startup-shell,
+        .omp-startup-mark {
+          animation: none;
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /*
+       * The paint gate: no pixel of the entrance is painted until the application has said which
+       * palette it drew with.
+       *
+       * The window is already painted in the theme the desktop recorded for it - `src-tauri/src/
+       * services/appearance.rs` sets the window's brush and WebView2's own default surface from
+       * `app.sqlite` - while this document's own answer comes from the webview's storage, which can
+       * be stale or gone. Painting the entrance from that answer is what put the wrong palette on
+       * screen for the frames before `src/main.tsx` adopted the record: the mark in the light
+       * palette is a black plate with white strokes, and on a window the record had painted dark
+       * that reads as a white bar under the loading panel (reader report, 2026-11-05).
+       *
+       * So the canvas, the body and the overlay stay transparent - what is on screen is the surface
+       * the desktop painted, which is the record's colour by construction - and both entrance
+       * animations are declared only under `data-omp-startup-paint`, which `src/main.tsx` sets once
+       * the palette class and the plugin theme are applied and before the provider mounts. A
+       * document whose application never runs (a plain browser page) gets the flag from the ceiling
+       * in the hand-over script below, and is painted in the mode pair it resolved for itself.
+       */
+      html:not([data-omp-startup-paint]),
+      html:not([data-omp-startup-paint]) body,
+      html:not([data-omp-startup-paint]) #omp-startup {
+        background: transparent;
+      }
+
+      html:not([data-omp-startup-paint]) .omp-startup-shell {
+        opacity: 0;
+        animation: none;
+      }
+
+      html[data-omp-startup-paint],
+      html[data-omp-startup-paint] #omp-startup {
+        background: var(--omp-startup-surface);
+      }
+
+      html[data-omp-startup-paint] .omp-startup-shell {
+        animation: omp-startup-pop 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      html[data-omp-startup-paint] .omp-startup-mark {
+        animation: omp-startup-pulse 1.8s linear infinite;
+      }
+    </style>
+    <script>
+      /*
+       * The selected plugin theme, painted before the first frame.
+       *
+       * A theme is stored with what it paints (`omp-desktop.plugin-theme`: its tokens and the
+       * stylesheet the Rust boundary already sanitised), so the entrance can wear it without asking
+       * any module - `src/main.tsx` is a module, and it arrives after this shell has painted.
+       *
+       * The two `<style>` ids are `src/src/state/plugin-theme.ts`'s own: that module looks the
+       * elements up by id and rewrites them, so the hand-over is one write into the same two nodes
+       * rather than a second theme element beside the first. Its `paint(null)` removes them when the
+       * plugin behind the choice is gone, which is also how a stale choice is dropped here.
+       *
+       * Nothing is parsed as markup: the tokens go into a declaration block this script composes,
+       * and the stylesheet is written with `textContent`.
+       */
+      (function () {
+        var stored = null
+        try {
+          stored = JSON.parse(window.localStorage.getItem('omp-desktop.plugin-theme') || 'null')
+        } catch {
+          return
+        }
+        if (stored === null || typeof stored !== 'object') {
+          return
+        }
+        var tokens = stored.tokens
+        if (tokens === null || typeof tokens !== 'object') {
+          return
+        }
+        var declarations = ''
+        for (var name in tokens) {
+          if (!Object.prototype.hasOwnProperty.call(tokens, name)) continue
+          var value = tokens[name]
+          if (typeof value !== 'string' || value.length === 0 || value.length > 64) continue
+          if (name.slice(0, 2) !== '--') continue
+          declarations += name + ':' + value + ';'
+        }
+        if (declarations === '') {
+          return
+        }
+        var node = document.createElement('style')
+        node.id = 'omp-plugin-theme'
+        node.textContent = ':root{' + declarations + '}'
+        document.head.appendChild(node)
+
+        var css = stored.css
+        if (typeof css === 'string' && css.length > 0) {
+          var sheet = document.createElement('style')
+          sheet.id = 'omp-plugin-theme-css'
+          sheet.textContent = css
+          document.head.appendChild(sheet)
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <!-- Inert while the shell covers it: the application is painted behind the overlay but must not
+         take focus or reach the accessibility tree until the hand-over removes it. -->
+    <div id="root" inert></div>
+    <!-- The label is English and does not go through the copy tables: this document paints before
+         any module, so no copy table exists yet. -->
+    <div id="omp-startup" role="status" aria-busy="true" aria-label="Loading">
+      <div class="omp-startup-shell">
+        <svg
+          class="omp-startup-mark"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 100 100"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <!-- The mark `src-tauri/icons/logo.svg` draws, inlined because this shell has to paint in
+               the frame the document does - an `<img>` would arrive a request later. The plate is
+               the theme's ink and the pi is cut out of the theme's surface, both read from the
+               palette the application paints (a plugin theme's included), and the gate above holds
+               the whole mark back until that palette is the one on screen. -->
+          <rect x="4" y="4" width="92" height="92" rx="22" fill="var(--omp-startup-ink)" />
+          <g
+            fill="none"
+            stroke="var(--omp-startup-surface)"
+            stroke-width="16"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 29h56" />
+            <path d="M34 29v42" />
+            <path d="M66 29v42" />
+          </g>
+        </svg>
+      </div>
+    </div>
+    <script>
+      /*
+       * The window is raised here, one painted frame after the shell is parsed.
+       *
+       * It is created hidden (`tauri.conf.json`) because a window shown before its webview has
+       * anything to paint puts WebView2's own white on screen — and what there is to paint is this
+       * document, which needs no module at all. Waiting for `src/main.tsx` (the other caller of
+       * `main_window_ready`) tied that moment to a bundle: in `tauri:dev` the bundle takes longer
+       * than the desktop's own 1.5s ceiling, so the log said `the window was shown by the start-up
+       * ceiling: its document did not raise it` twice in one run — the window was being shown by a
+       * timer while the shell that was already on screen waited for a module graph.
+       *
+       * This is the earliest of the three paths, not the only one: `src/main.tsx` still calls it as
+       * its first act, and Rust still arms the ceiling, so a document whose bridge is missing (a
+       * plain browser page) or whose call is refused still ends on a window.
+       */
+      (function () {
+        var internals = window.__TAURI_INTERNALS__
+        if (!internals || typeof internals.invoke !== 'function') {
+          return
+        }
+        var raised = false
+        function raise() {
+          if (raised) {
+            return
+          }
+          raised = true
+          try {
+            internals.invoke('main_window_ready')
+          } catch (error) {
+            // Nothing to undo: `main.tsx` and the desktop's ceiling are both still behind this.
+          }
+        }
+        /* Two frames, because the first callback runs before the first frame is painted. A hidden
+           window may not run `requestAnimationFrame` at all, so the timer is the guarantee rather
+           than the fallback - the shell has certainly laid out 300ms after parsing either way. */
+        window.requestAnimationFrame(function () {
+          window.requestAnimationFrame(raise)
+        })
+        window.setTimeout(raise, 300)
+      })()
+    </script>
+    <script>
+      /*
+       * The hand-over contract, in two halves: the entrance has played, and the application behind
+       * the shell says it is worth showing. The first half is this document's own animation; the
+       * second is `omp-startup-ready`, dispatched by `src/main.tsx` once the first frame has been
+       * painted and the first workspace read has settled (or its own ceiling). Neither half can
+       * hold the window on its own: each has a ceiling, so a module that never loads or a boot that
+       * never lands ends on the application's own surface rather than on this shell.
+       *
+       * The entrance does not start until the paint gate opens, and `src/main.tsx` opens it only
+       * after adopting the record's theme - so the half of this contract that counts the animation's
+       * end counts from the gate, and the gate's own ceiling is what answers a document whose
+       * application never runs.
+       */
+      (function () {
+        var overlay = document.getElementById('omp-startup')
+        var shell = document.querySelector('.omp-startup-shell')
+        var root = document.getElementById('root')
+        /* Both ways the reader can have asked for less movement, because both stop the entrance:
+           the stored setting, and the platform's own preference - which the stylesheet above
+           honours on its own, and which would otherwise leave this script waiting for an
+           `animationend` that a disabled animation never reports. */
+        var reduceMotion =
+          document.documentElement.getAttribute('data-omp-startup-motion') === 'reduce' ||
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        var played = reduceMotion || shell === null
+        var ready = false
+        var handedOver = false
+
+        function reveal() {
+          if (root !== null) {
+            root.removeAttribute('inert')
+          }
+          if (overlay !== null) {
+            overlay.remove()
+          }
+          document.body.classList.remove('omp-startup-leaving')
+          document.body.classList.add('omp-startup-ready')
+          // The theme attribute stays behind: the document's own background is what keeps the
+          // window from being white if the application behind it never paints. The motion
+          // attribute only ever addressed the entrance, so it goes with the shell.
+          document.documentElement.removeAttribute('data-omp-startup-motion')
+        }
+
+        function handOver() {
+          if (handedOver || !played || !ready) {
+            return
+          }
+          handedOver = true
+          if (reduceMotion) {
+            // Nothing to wait for: the stylesheet turns the fade off under the same conditions, and
+            // a hand-over with no motion is one frame.
+            reveal()
+            return
+          }
+          document.body.classList.add('omp-startup-leaving')
+          if (overlay !== null) {
+            overlay.addEventListener('transitionend', reveal, { once: true })
+          }
+          /* A fade that never reports its end - a frame that was never painted, a stylesheet that is
+             not there - must not hold the window. */
+          window.setTimeout(reveal, 400)
+        }
+
+        window.addEventListener('omp-startup-ready', function () {
+          ready = true
+          handOver()
+        })
+
+        /* The paint gate's ceiling, in milliseconds. The entrance paints nothing until the
+           application says which palette it drew with (the gate rule at the end of the stylesheet
+           above), and a page whose application never runs - a plain browser document, a bundle that
+           fails to parse - must still be painted: this opens the gate on the mode pair this document
+           resolved for itself. It is longer than the theme read's own ceiling (`src/main.tsx`, 2s),
+           so an application that does answer is always the one whose palette the entrance wears. */
+        var PAINT_CEILING_MS = 2500
+        window.setTimeout(function () {
+          document.documentElement.setAttribute('data-omp-startup-paint', '')
+        }, PAINT_CEILING_MS)
+
+        if (!played) {
+          shell.addEventListener(
+            'animationend',
+            function () {
+              played = true
+              handOver()
+            },
+            { once: true },
+          )
+          /* The shipped entrance is 0.72s, and a theme may draw a longer one (its stylesheet can
+             animate the shell). This ceiling is measured from the gate rather than from this parse,
+             because the animation it stands for cannot have started before the gate opened - and the
+             gate is itself held back for the theme read. It only stops a frame that never reports its
+             end from holding the window; it is not a budget a theme has to fit into. */
+          window.setTimeout(function () {
+            played = true
+            handOver()
+          }, PAINT_CEILING_MS + 1500)
+        }
+
+        /* And a boot that never settles must not hold it either. The ceiling is this long because
+           in dev the entry's module graph is transformed on demand: the shell can legitimately be
+           up for several seconds before `main.tsx` has even run. */
+        window.setTimeout(function () {
+          ready = true
+          handOver()
+        }, 30000)
+      })()
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

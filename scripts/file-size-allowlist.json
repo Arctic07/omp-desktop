@@ -1,0 +1,8 @@
+{
+  "_note": "Files above `rules.md#single-file-line-limit`'s 1000-line limit, pinned at their size when they crossed it. Each entry may only shrink, and must be removed once the file is at or below 1000 lines (scripts/check-file-size.mjs enforces both).",
+  "src-tauri/src/services/runtime/host/mod.rs": 1218,
+  "src-tauri/src/services/runtime/events.rs": 1039,
+  "src-tauri/src/services/runtime/history.rs": 1022,
+  "src-tauri/src/services/terminal.rs": 1039,
+  "src/src/home/conversation-rows.test.ts": 1013
+}

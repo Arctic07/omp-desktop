@@ -1,0 +1,1 @@
+{"name":"omp-desktop-builtin","owner":{"name":"OMP Desktop"},"plugins":[{"name":"omp.terminal","source":"./package/omp.terminal","version":"0.2.1","description":"The built-in terminal: a work-panel tab this application draws itself, and the rules that teach the agent to use the terminal a workspace has open."}]}
