@@ -9,13 +9,17 @@
 #
 # Required repository secret:
 # - `TAURI_SIGNING_PRIVATE_KEY`: the private half of the key whose public half is in
-#   `src-tauri/tauri.conf.json`. The key lives outside the repository; losing it strands every
-#   installed copy.
+#   `src-tauri/tauri.conf.json`, as the base64 string `tauri signer generate` prints. The key lives
+#   outside the repository; losing it strands every installed copy.
 #
-# The key this repository generated has no password, so the workflow passes none. A
-# password-protected key would need `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` added to this env and to
-# the repository secrets; leaving the password env set while the key has none fails the build with
-# "incorrect updater private key password".
+# The key in that secret decrypts with an empty password, so the workflow passes no
+# `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: absent, the bundler falls back to an empty password, while a
+# non-empty value fails the build with "incorrect updater private key password". Do not map that
+# secret here even when it exists in the repository; deleting it is the cleanup.
+#
+# The preflight below signs a probe with the same secret the build uses and refuses a key that does
+# not decrypt or does not match `plugins.updater.pubkey`, in seconds instead of after the whole
+# build; `tauri build` itself only warns about a mismatch.
 #
 # Only Windows is published: the host artifact and the installer this repository builds are the
 # Windows x64 ones. The feed names that platform alone.
@@ -61,6 +65,26 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # `tauri build` signs only after the installer exists, so a key that will not decrypt used to
+      # cost the whole build. Signing a probe with the secret the build step gets fails in seconds;
+      # the check adds the key-number comparison tauri only warns about.
+      - name: Preflight the updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::set the repository secret TAURI_SIGNING_PRIVATE_KEY to the updater private key"
+            exit 1
+          fi
+          # A workspace-relative path survives the MSYS-to-native boundary that `mktemp` does not.
+          probe=signing-probe
+          trap 'rm -f "$probe" "$probe.sig"' EXIT
+          printf 'omp-desktop' > "$probe"
+          node node_modules/@tauri-apps/cli/tauri.js signer sign "$probe" > /dev/null
+          node scripts/check-signing-key.mjs "$probe.sig"
 
       - name: Verify the tag matches every version site
         shell: bash
