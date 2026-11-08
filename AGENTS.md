@@ -90,7 +90,7 @@ Write one for any change to behavior, architecture, a cross-file contract, a pro
 | Document | Ceiling (words) |
 |---|---|
 | `AGENTS.md` | 1,950 |
-| `rules.md` | 10,720 |
+| `rules.md` | 11,250 |
 | `src/AGENTS.md` | 3,900 |
 | `src/rules.md` | 300 |
 

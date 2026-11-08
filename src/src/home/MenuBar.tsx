@@ -25,6 +25,7 @@ import { openToolTab } from "@/state/panel-tools";
 import { toolAvailability, usePluginPages } from "@/state/plugin-pages";
 import { activeRecord, sessionStore, type SessionStoreState } from "@/state/session-store";
 import { useStoreSelector } from "@/state/store";
+import { checkForUpdates } from "@/state/update-store";
 import { isUnwritten } from "@/state/transcript";
 
 export interface MenuBarProps {
@@ -54,9 +55,11 @@ export interface MenuBarProps {
  *   whose plugin this build does not serve is left out entirely.
  * - **视图** reloads the document. The engine's turns run in the host process, not in this page, so
  *   a reload re-attaches to whatever is running instead of interrupting it.
- * - **帮助** opens the settings page's About section. 检查更新 is reserved — there is no updater in
- *   this build (`rules.md#engine-upgrade-and-distribution`), so the row is drawn and cannot be chosen rather than pretending to
- *   check anything.
+ * - **帮助** opens the settings page's About section, and 检查更新 asks the fixed release feed and
+ *   takes the reader there: the answer — a newer version, the newest, a failure — is a sentence the
+ *   About page draws, not a menu that closes before it can say anything. When a release is
+ *   announced, the title bar's update pill appears beside this menu
+ *   (`rules.md#release-versions-and-publishing`).
  *
  * No 编辑 menu: nothing on this screen has a document-level edit verb a menu could own
  * (2026-10-26, user request).
@@ -124,8 +127,11 @@ export function MenuBar({ onOpenAbout, onLeaveSettings, className }: MenuBarProp
       id: "updates",
       label: copy.menuCheckUpdates,
       icon: Download,
-      disabled: true,
-      hint: copy.menuCheckUpdatesPending,
+      onSelect: () => {
+        setOpen(null);
+        void checkForUpdates();
+        onOpenAbout();
+      },
     },
   ];
 

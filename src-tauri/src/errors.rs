@@ -68,6 +68,9 @@ pub(crate) const BRANCH_CANCELLED: &str = "branch_cancelled";
 pub(crate) const OPEN_IN_APP_UNKNOWN: &str = "OPEN_IN_APP_UNKNOWN";
 /// The application was found, but launching it (or extracting its icon) failed.
 pub(crate) const OPEN_IN_APP_FAILED: &str = "OPEN_IN_APP_FAILED";
+/// A restart was asked for while no downloaded update was waiting. Raised on this side
+/// only: the state that earns a restart is the one the update service published.
+pub(crate) const UPDATE_NOT_READY: &str = "UPDATE_NOT_READY";
 pub(crate) const CUSTOM_PROVIDER_INVALID: &str = "CUSTOM_PROVIDER_INVALID";
 pub(crate) const CUSTOM_PROVIDER_FETCH_FAILED: &str = "CUSTOM_PROVIDER_FETCH_FAILED";
 pub(crate) const CUSTOM_PROVIDER_MODELS_EMPTY: &str = "CUSTOM_PROVIDER_MODELS_EMPTY";

@@ -211,7 +211,9 @@ fn a_branch_is_listed_and_switched_to() {
 /// and not a failure: the sidebar just has nothing to show.
 #[test]
 fn a_non_repository_has_no_branches() {
-    let root = std::env::temp_dir().join(format!("omp-git-plain-{}", std::process::id()));
+    // The name carries this test: the review fixture in `tests/mod.rs` draws the same shape from
+    // the same temp root, and two tests deleting one directory race each other's git spawn.
+    let root = std::env::temp_dir().join(format!("omp-git-branches-plain-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("plain directory");
 

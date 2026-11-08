@@ -35,6 +35,7 @@ tauri-plugin-dialog = "2"
 # whether the user is looking at the window at all before it hands the notice to the system.
 tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["sync", "time", "rt"] }
 # Deflate-only: the local plugin package (`.omp.zip` / `.piplug`) is read entry by entry, and the
 # guards around it are this application's own (`services::plugins::package`), so none of the crate's

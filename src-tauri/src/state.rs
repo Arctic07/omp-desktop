@@ -280,6 +280,9 @@ pub(crate) struct AppState {
     /// something else changes a file in it. Owner/bound/release are stated by the service itself
     /// (`services::workspace_watch`).
     pub(crate) workspace_watch: Arc<WorkspaceWatch>,
+    /// The application's own update check (`services::updater`): one fixed feed, one announced
+    /// update, and the state every surface reads. Owner/bound/release are stated by the service.
+    pub(crate) updater: Arc<crate::services::updater::UpdaterService>,
     /// When this process last refreshed the marketplace registry *successfully*, which is what
     /// throttles the automatic refresh the store asks for when it opens. Owner/bound/release: one
     /// value for the process's whole life, released with it; it is bounded by definition (a single
@@ -505,6 +508,7 @@ impl AppState {
         // The projection is opened before the paths are moved into the state below: the cache owns
         // its own handle to the file and needs nothing from them afterwards.
         let session_index = Arc::new(SessionIndexCache::open(&paths.session_index_sqlite()));
+        let updater = Arc::new(crate::services::updater::UpdaterService::new());
         // Both databases are opened in WAL mode and only ever checkpointed when SQLite chooses to,
         // which leaves a log beside each and free pages inside each - measured at 4.7 MB of `-wal`
         // beside `sessions-index.sqlite` alone. The pass runs once, a minute in, when the start-up
@@ -543,6 +547,7 @@ impl AppState {
             plugin_workspace: Mutex::new(None),
             builtin_sync: Arc::new(BuiltinSync::new()),
             workspace_watch: Arc::new(WorkspaceWatch::new(app.clone())),
+            updater,
             marketplace_refresh: Mutex::new(None),
         })
     }

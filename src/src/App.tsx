@@ -37,6 +37,7 @@ import { startDesktopDrop, stopDesktopDrop } from '@/state/desktop-drop'
 import { pluginsResource, readPlugins, startPluginWiring } from '@/state/plugins-store'
 import { setPluginWorkspace } from '@/api/plugins'
 import { startSessionWiring } from '@/state/session-store'
+import { startUpdateWiring } from '@/state/update-store'
 import { startStallWatch, stopStallWatch } from '@/state/session-stall'
 
 type View = 'chat' | 'settings'
@@ -240,6 +241,10 @@ function App() {
       stopDesktopDrop()
     }
   }, [])
+
+  // The update status belongs to the process, not to this page: subscribe once and read the value
+  // the desktop already holds, so a reload shows the announcement the previous document saw.
+  useEffect(() => startUpdateWiring(), [])
 
   // The tray's menu is drawn by the shell, so its language is told to the shell once per change.
   // The theme used to be pushed from here as well, on mount and on every change; it is not, because

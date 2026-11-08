@@ -57,6 +57,18 @@
       "nsis": {
         "installerHooks": "nsis/hooks.nsh"
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2ODVCOEZCQzU5NTNGNDIKUldSQ1A1WEYrN2lGWmphY2dITDdCSFRSd1FnakJuV1B4cnhwQUUzNkMzQjE4SWVFTHZ3NU5mbDUK",
+      "endpoints": [
+        "https://github.com/Arctic07/omp-desktop/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
