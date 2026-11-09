@@ -37,7 +37,7 @@ import {
   toolEntryLocked,
   type ToolMenuEntry,
 } from "@/components/workspace/tool-menu-entries";
-import { toolShortcutTarget } from "@/components/workspace/tool-shortcut";
+import { usePanelShortcuts } from "@/components/workspace/use-panel-shortcuts";
 import { openToolTab } from "@/state/panel-tools";
 import type { PanelTabRef, SourceFileTabRef } from "@/state/panel-tabs";
 import {
@@ -321,21 +321,6 @@ export function RightSidebar({
     [availability.browser, availability.terminal, copy.title, sessionId, unwritten],
   );
 
-  // The column's own shortcuts, all five of them on one window listener. `Ctrl Shift Z` opens the
-  // terminal from any state — including the column being closed, which is the whole point (the
-  // header's door is hidden once the column is open on a wide window, so without this a closed
-  // column had no keyboard way in). `Ctrl Tab` walks the tabs already on the strip, `Ctrl Shift G`
-  // brings the git review forward, and `Ctrl Shift E` and `Ctrl Shift B` do the same for the file
-  // and browser tabs.
-  //
-  // The listener is registered once and reads the latest `selectEntry` through a ref: rebinding it
-  // every render would tear down and re-add a window listener on every keystroke in the app.
-  const selectEntryRef = useRef(selectEntry);
-  useEffect(() => {
-    selectEntryRef.current = selectEntry;
-  }, [selectEntry]);
-
-
   // Bring one tab of the strip on screen: the same three `select…` calls the strip's own tab buttons
   // make, so a keyboard walk and a click land in exactly the same place.
   const showTab = useCallback(
@@ -368,31 +353,7 @@ export function RightSidebar({
     [sessionId, showTab],
   );
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      // `Ctrl Tab` walks the column's tabs. It is the one binding here that fires wherever the reader
-      // is — a shell and a field included, which is what a tab walk is for — so it is answered before
-      // the field guards below. The shell does not see the keystroke either (`TerminalPanel` keeps
-      // xterm off it): a tab strip that types a tab into the shell on its way past is not a shortcut.
-      if (event.key === "Tab") {
-        event.preventDefault();
-        cycleTab(event.shiftKey ? -1 : 1);
-        return;
-      }
-      // `Ctrl Shift G` / `Ctrl Shift E` / `Ctrl Shift B` / `Ctrl Shift Z` bring the git / file /
-      // browser / terminal tab forward — jump-or-open, like the + menu's own entries. A field and a
-      // shell keep the keys: the shortcuts are not worth losing a typed E, B, or the shell's redo.
-      const shortcutTarget = toolShortcutTarget(event);
-      if (shortcutTarget === null) return;
-      const shiftTarget = event.target instanceof Element ? event.target : null;
-      if (shiftTarget?.closest(".xterm, input, textarea, [contenteditable='true']")) return;
-      event.preventDefault();
-      if (sessionId !== null) selectEntryRef.current({ action: shortcutTarget, pageKey: null });
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cycleTab, sessionId]);
+  usePanelShortcuts({ cycleTab, selectEntry });
 
   return (
     <AnimatedSidebarProvider

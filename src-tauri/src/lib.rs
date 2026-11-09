@@ -162,10 +162,10 @@ pub fn run() {
             // `services::file_drop`). It has to run after the window exists and before the first
             // drag can, and it leaves every other platform on Tauri's own handler.
             services::file_drop::install(app.handle());
-            // `Ctrl+F` belongs to the file preview and to nothing else: the webview's own find
-            // dialog over the whole interface is switched off here, once, before the reader can
-            // press the key (see `services::webview_keys`).
-            services::webview_keys::release_find_key(app.handle());
+            // Take the find accelerators (`Ctrl+F`, `Ctrl+G`, `Ctrl+Shift+G`, `F3`, `Shift+F3`)
+            // away from the main window's webview; the file preview and the work column answer the
+            // chords they own, and nothing answers the rest (see `services::webview_keys`).
+            services::webview_keys::release_find_keys(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

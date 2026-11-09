@@ -279,6 +279,7 @@ impl Page {
             return Err("browser guest was closed".to_owned());
         }
         let _ = webview.hide();
+        crate::services::webview_keys::release_find_keys_on(&webview, "the browser guest");
         self.install_document_events(&webview);
         let mut held = self
             .webview

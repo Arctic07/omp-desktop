@@ -255,7 +255,11 @@ impl PluginPanels {
             })
             .build();
         match built {
-            Ok(_) => {
+            Ok(window) => {
+                crate::services::webview_keys::release_find_keys_on(
+                    window.as_ref(),
+                    "a plugin window",
+                );
                 log::info(&format!(
                     "plugin panel window opened: plugin={} panel={}",
                     page.plugin_id, panel.id
