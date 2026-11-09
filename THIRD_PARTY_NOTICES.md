@@ -33,3 +33,7 @@ SOFTWARE.
 ## MiSans VF font
 
 The frontend ships the MiSans variable-font subsets in `src/src/fonts/misans/` under the Apache License 2.0, as distributed by the `misans` npm package (<https://github.com/dsrkafuu/misans>). The license text and its copyright notice are in [`src/src/fonts/misans/LICENSE`](src/src/fonts/misans/LICENSE), which is also installed beside the application as `MiSans-LICENSE.txt`.
+
+## Bundled npm packages
+
+The production dependency tree the build draws from — including the packages Vite and Bun inline — is enumerated with each package's own license text in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md). That file is generated from `pnpm licenses list --prod`; a dependency bump that changes a license shows up as a diff and fails `pnpm notices:check`.
