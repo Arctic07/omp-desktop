@@ -39,7 +39,9 @@
  */
 
 // Relative, with its extension: this module is read by the test runner as well as by the bundler.
+import { codeSegments } from './code-ranges.ts'
 import { parseIrcMessage, type ParsedIrcMessage } from './irc-message.ts'
+import { stripToolCallMarkup } from './tool-call-markup.ts'
 
 /**
  * The tags a model writes for itself.
@@ -227,27 +229,6 @@ export function isModelTag(tag: SystemNoticeTag): tag is ModelTag {
   return (MODEL_TAGS as readonly string[]).includes(tag)
 }
 
-/**
- * A model's own tag anywhere but in code — the block's own punctuation, never the words around it.
- *
- * Three shapes reach this function, and all three are the same fact: the tag is markup.
- *
- * - An answer is drawn while it is still being written, and a callout cannot be drawn for half a
- *   block: the opener sits on the screen for seconds before its closer arrives.
- * - A model closes a tag twice, writes a closer with no opener, or writes one section's closer and
- *   the next section's opener with nothing between them (`</analysis>` then `<summary>`).
- * - A reader wraps a sentence of their own in the tag, inline rather than as a block
- *   (`important未用beui适配输出 <important> … </important>`). `NOTICE_BLOCK` needs a line of its own,
- *   so nothing reads that pair as a block, and without this the reader's own bubble shows brackets.
- * - A model wraps its whole answer in one (`ANSWER_ENVELOPES`): no block is read for it, so the
- *   opening and the closing are both punctuation around the words the bubble already frames.
- *
- * Code is exempt: a span or a fence showing `<important>` is showing an example of the markup, and
- * an example is what it meant to show.
- */
-/** One code span or fence, kept whole: the odd segments of splitting on it are the code. */
-const CODE_SPAN = /(```[\s\S]*?```|`[^`\n]*`)/g
-
 /** The tags this side strips, as one alternation: `STRIPPED_TAGS` is the list, this is its spelling. */
 const STRIPPED_TAG_PATTERN = `(?:${STRIPPED_TAGS.join('|')})`
 
@@ -260,13 +241,29 @@ const STRIPPED_TAG_INLINE = new RegExp(`([ \\t]*)(</?${STRIPPED_TAG_PATTERN}>)([
 /**
  * This text with the model's tags taken out of its prose; code keeps what it quotes.
  *
+ * Two vocabularies are stripped, in this order: a call the model wrote as markup
+ * (`stripToolCallMarkup` — a call is drawn where calls are, never as its own brackets), then the
+ * model's own tags. Every shape the tags arrive in is the same fact: the tag is markup.
+ *
+ * - An answer is drawn while it is still being written, and a callout cannot be drawn for half a
+ *   block: the opener sits on the screen for seconds before its closer arrives.
+ * - A model closes a tag twice, writes a closer with no opener, or writes one section's closer and
+ *   the next section's opener with nothing between them (`</analysis>` then `<summary>`).
+ * - A reader wraps a sentence of their own in the tag, inline rather than as a block
+ *   (`important未用beui适配输出 <important> … </important>`). `NOTICE_BLOCK` needs a line of its own,
+ *   so nothing reads that pair as a block, and without this the reader's own bubble shows brackets.
+ * - A model wraps its whole answer in one (`ANSWER_ENVELOPES`): no block is read for it, so the
+ *   opening and the closing are both punctuation around the words the bubble already frames.
+ *
  * An inline tag joins its two sides with the space it stood in when both sides are words
  * (`inline <important>the point</important> of it`), and takes its blanks with it when they are not
  * — a tag at the end of a sentence or a line leaves no double space behind.
+ *
+ * Code is exempt: a span or a fence showing `<important>` is showing an example of the markup, and
+ * an example is what it meant to show.
  */
 export function stripModelTags(text: string): string {
-  return text
-    .split(CODE_SPAN)
+  return codeSegments(stripToolCallMarkup(text))
     .map((segment, index) => {
       if (index % 2 === 1) return segment
       // A tag on a line of its own goes with that line, before the inline rule sees it: the line's
@@ -296,7 +293,7 @@ export function stripModelTags(text: string): string {
 export function messageProse(text: string): string {
   return splitSystemNotices(text)
     .filter(part => part.kind === 'text' || isModelTag(part.tag))
-    .map(part => (part.kind === 'text' ? stripModelTags(part.text) : part.text))
+    .map(part => stripModelTags(part.text))
     .filter(part => part !== '')
     .join('\n\n')
 }

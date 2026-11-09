@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { readStrayToolCall } from './tool-call-markup.ts'
+import { readStrayToolCall, stripToolCallMarkup } from './tool-call-markup.ts'
 
 /**
  * A tool call the engine never parsed, read out of a step's words.
@@ -133,4 +133,136 @@ test('a legacy shape that is prose, code, or an element of the page stays prose'
   assert.equal(readStrayToolCall('<thought><i>weighing it</i></thought>'), null)
   // A body of bare text is not an argument list: nothing says this is a call.
   assert.equal(readStrayToolCall('<Browser>screenshot</Browser>'), null)
+})
+
+/**
+ * The spelling whose arguments are attributes: `<ask i="…" questions="[…]">`.
+ *
+ * The 2026-11-09 recording is the fixture: a finished answer, then a call the model appended and cut
+ * before its `>`. The engine healed the call on the next step, so the ask dialog ran, and the
+ * fragment still sat in the step's words — the bubble drew the tag over the answer.
+ */
+
+test('a call cut before its `>` is read as the call it was writing', () => {
+  const hit = readStrayToolCall(
+    '<ask i="Confirming merge and notices follow-up" questions="[{"id": "merge", "question": "合并吗？"}]',
+  )
+  assert.equal(hit?.name, 'ask')
+  assert.equal(hit?.args.i, 'Confirming merge and notices follow-up')
+  // The value is the JSON the model wrote with its own quote character reused inside it.
+  assert.equal(hit?.args.questions, '[{"id": "merge", "question": "合并吗？"}]')
+})
+
+test('the attribute spelling names its tool the same way the other spellings do', () => {
+  const selfClosed = readStrayToolCall('<bash i="Listing the tree" command="ls -la"/>')
+  assert.equal(selfClosed?.name, 'bash')
+  assert.deepEqual(selfClosed?.args, { i: 'Listing the tree', command: 'ls -la' })
+  const paired = readStrayToolCall('<read i="Reading the parser" path="home/markdown.ts"></read>')
+  assert.equal(paired?.name, 'read')
+  assert.deepEqual(paired?.args, { i: 'Reading the parser', path: 'home/markdown.ts' })
+  // Words beside the element are an answer that mentions a call.
+  assert.equal(readStrayToolCall('<ask i="x"> beside a sentence'), null)
+  // A page element keeps being a page element even with an attribute.
+  assert.equal(readStrayToolCall('<meta property="og:image" content="/media/og.png" />'), null)
+  assert.equal(readStrayToolCall('<div i="not a tool">hello</div>'), null)
+})
+
+test('the fragment beside a finished answer is markup, not one of the words', () => {
+  const answer = '已完成，分支 `chore/mit-license`，未合并。\n\n**结论：允许。**\n\n<ask i="Confirming merge" questions="[{"id": "merge"}]'
+  assert.equal(stripToolCallMarkup(answer), '已完成，分支 `chore/mit-license`，未合并。\n\n**结论：允许。**\n\n')
+})
+
+test('a call on its own line takes the line, and one mid-sentence takes a space', () => {
+  assert.equal(
+    stripToolCallMarkup('The tree is clean.\n<read i="Reading" path="a.ts"/>\nNext: the patch.'),
+    'The tree is clean.\nNext: the patch.',
+  )
+  assert.equal(
+    stripToolCallMarkup('Fixed it <edit i="Patching" path="a.ts"/> and reran the suite.'),
+    'Fixed it and reran the suite.',
+  )
+})
+
+test('a call the answer is talking about keeps its brackets', () => {
+  const span = 'The model wrote `<ask i="x" questions="[]">` and the engine ran it.'
+  assert.equal(stripToolCallMarkup(span), span)
+  const fence = '```\n<ask i="x" questions="[]">\n```'
+  assert.equal(stripToolCallMarkup(fence), fence)
+  // A tag with attributes but no argument is prose about markup, and stays.
+  const prose = 'Write <link rel="canonical" href="/a"> in the head.'
+  assert.equal(stripToolCallMarkup(prose), prose)
+})
+
+test('a legacy call that carries an attribute still reads its child elements', () => {
+  // The root has one attribute, but its arguments are children: the body decides which spelling it is.
+  const hit = readStrayToolCall('<Browser i="Capturing"><action>screenshot</action></Browser>')
+  assert.equal(hit?.name, 'Browser')
+  assert.deepEqual(hit?.args, { action: 'screenshot' })
+})
+
+test('a dialect fragment appended at the head of a line goes with the line', () => {
+  const answer =
+    'Fixed the drop path.\n<tool_invoke>\n<parameter name="i">Anchoring</parameter>\n<parameter name="path">a.ts\n\nnext paragraph'
+  assert.equal(stripToolCallMarkup(answer), 'Fixed the drop path.\nnext paragraph')
+  // Mid-sentence it is a sentence about the markup, and stays.
+  const sentence = 'The engine wrote <parameter name="i">x</parameter> as text.'
+  assert.equal(stripToolCallMarkup(sentence), sentence)
+})
+
+test('a fragment cut inside an argument value is still the call it was writing', () => {
+  // The model stopped mid-JSON and mid-string: the line is where its value stopped.
+  assert.equal(
+    stripToolCallMarkup('答案在下面。\n<ask i="x" questions="[{"id": "merge'),
+    '答案在下面。\n',
+  )
+  assert.equal(stripToolCallMarkup('答案在下面。\n<read i="x" path="a.ts'), '答案在下面。\n')
+})
+
+test('a call that never said where it ends is only claimed at the head of a line', () => {
+  // Mid-sentence the same bytes are a sentence about the markup, and it keeps its words.
+  const sentence = 'The engine wrote <ask i="x"> for that.'
+  assert.equal(stripToolCallMarkup(sentence), sentence)
+  // Closed where it stands, it goes wherever it is.
+  assert.equal(
+    stripToolCallMarkup('Fixed it <edit i="Patching" path="a.ts" /> and reran.'),
+    'Fixed it and reran.',
+  )
+})
+
+test('only the element with that exact name closes a call', () => {
+  // `</askers>` is a different element, so the opener is unfinished — and mid-sentence an
+  // unfinished opener is a sentence about the markup.
+  assert.equal(readStrayToolCall('<ask i="x"></askers>'), null)
+  const sentence = 'prose <ask i="x"></askers> more'
+  assert.equal(stripToolCallMarkup(sentence), sentence)
+})
+
+test('a legacy envelope beside prose goes when its body is the arguments a call carries', () => {
+  assert.equal(
+    stripToolCallMarkup(
+      'Fixed it.\n<Browser><action>screenshot</action><i>Capturing</i></Browser>\nDone.',
+    ),
+    'Fixed it.\nDone.',
+  )
+  // A block of prose inside a closing tag is not a call.
+  const prose = 'See:\n<example><details>x</details></example>'
+  assert.equal(stripToolCallMarkup(prose), prose)
+})
+
+test('a fence still being streamed is code to its end, not prose', () => {
+  const streaming = 'Look:\n```ts\n<ask i="x" questions="[1]"/>'
+  assert.equal(stripToolCallMarkup(streaming), streaming)
+})
+
+test('a pretty-printed argument is one value, and the call ends with its line', () => {
+  const answer = '答案：\n<ask i="x" questions="[\n  {"id": "a"},\n  {"id": "b"}\n]">\n后续'
+  assert.equal(stripToolCallMarkup(answer), '答案：\n后续')
+})
+
+test('a fragment first in the step leaves the answer under it', () => {
+  // The write stopped inside the argument, and the answer follows on the next line: the step is
+  // prose plus a fragment, never a whole-message call — its answer must survive.
+  const step = '<ask i="x" questions="[{"id": "a"\n这是答案。'
+  assert.equal(readStrayToolCall(step), null)
+  assert.equal(stripToolCallMarkup(step), '这是答案。')
 })
