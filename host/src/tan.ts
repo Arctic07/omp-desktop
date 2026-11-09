@@ -28,7 +28,6 @@ import type { MCPManager } from '@oh-my-pi/pi-coding-agent/mcp/manager'
 import { AgentRegistry } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 import { BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE } from '@oh-my-pi/pi-coding-agent/session/messages'
 import {
-  createMCPProxyTools,
   createSubagentSettings,
   followMCPTools,
 } from '@oh-my-pi/pi-coding-agent/task/executor'
@@ -135,7 +134,14 @@ export async function dispatchTan(
       async ({ signal }) => {
         if (signal.aborted) throw new Error('Aborted before execution')
         let clone: AgentSession | undefined
-        const mcpFollower = mcpManager === undefined ? undefined : followMCPTools(mcpManager)
+        // The follower subscribes and opens its scope in the constructor, before a session exists;
+        // only `bind` hands that subscription to the clone's disposer. Without this flag a create
+        // that throws (or a failure before `bind` runs) would leave the scope and its listener on
+        // the shared manager for the life of the host - the engine's own spawn path disposes on the
+        // same branch (`task/executor.ts`).
+        let mcpBound = false
+        const mcpFollower =
+          mcpManager === undefined ? undefined : followMCPTools(mcpManager, { scope: cloneManager.getSessionId() })
         try {
           const created = await createAgentSession({
             cwd,
@@ -153,7 +159,8 @@ export async function dispatchTan(
             settings,
             hasUI: false,
             enableMCP: false,
-            mcpTools: mcpManager === undefined ? undefined : createMCPProxyTools(mcpManager),
+            mcpTools: mcpFollower?.proxyTools(),
+            mcpToolScope: mcpFollower?.scope,
             enableLsp,
             agentId: cloneId,
             agentDisplayName: 'tan',
@@ -172,6 +179,7 @@ export async function dispatchTan(
           clone = created.session
           await clone.setActiveToolPresentation(toolNames, mountedToolNames)
           mcpFollower?.bind(clone)
+          mcpBound = true
           clone.sessionManager?.appendSessionInit?.({
             systemPrompt: clone.systemPrompt ?? systemPrompt,
             task: trimmed,
@@ -204,6 +212,9 @@ export async function dispatchTan(
             signal.removeEventListener('abort', abortClone)
           }
         } finally {
+          // A bound follower's unsubscribe travels with the clone (`bind` registers it as the
+          // clone's disposer); one that never bound owns it here.
+          if (mcpFollower !== undefined && !mcpBound) mcpFollower.dispose()
           if (clone !== undefined) {
             if (signal.aborted) {
               registry.setStatus(cloneId, 'aborted')

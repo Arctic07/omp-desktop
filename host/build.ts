@@ -207,15 +207,6 @@ function materializeTree(): { treeRoot: string; codingAgent: string; natives: st
   return { treeRoot: treeDir, codingAgent, natives, entrypoint: path.join(treeSource, 'main.ts') }
 }
 
-/** Concrete Transformers.js version baked into the tiny-model worker, as the pipeline derives it. */
-function transformersVersion(installedCodingAgent: string): string {
-  const manifest = createRequire(path.join(installedCodingAgent, 'package.json'))('@huggingface/transformers/package.json') as {
-    version?: unknown
-  }
-  if (typeof manifest.version !== 'string') throw new Error('@huggingface/transformers manifest has no string version')
-  return manifest.version
-}
-
 /** One addon the compiled binary carries, in the shape the `pi-natives` loader reads. */
 interface EmbeddedAddonFile {
   readonly variant: 'modern' | 'baseline' | 'default'
@@ -511,7 +502,6 @@ interface BuildInputs {
   readonly buildEntrypoint: string
   readonly natives: string
   readonly sdkVersion: string
-  readonly transformers: string
   readonly docsPayload: string
   readonly userAgent: string
   readonly legacy: { createLegacyPiVirtualModulePlugin: () => Promise<BunPlugin> }
@@ -534,7 +524,6 @@ async function prepareBuildInputs(): Promise<BuildInputs> {
     throw new Error(`${installedCodingAgent}/package.json has no string version`)
   }
   const sdkVersion = pkg.version
-  const transformers = transformersVersion(installedCodingAgent)
 
   const scriptUrl = (name: string): string => pathToFileURL(path.join(codingAgent, 'scripts', name)).href
   // Dynamic imports are required: the pipeline scripts must be loaded THROUGH the input tree so
@@ -559,7 +548,6 @@ async function prepareBuildInputs(): Promise<BuildInputs> {
     buildEntrypoint,
     natives,
     sdkVersion,
-    transformers,
     docsPayload: docsPayload.payload,
     userAgent: utils.USER_AGENT,
     legacy,
@@ -592,7 +580,6 @@ async function compile(): Promise<void> {
       external: [...COMPILED_EXTERNAL_DEPENDENCIES],
       define: {
         'process.env.PI_COMPILED': JSON.stringify('true'),
-        'process.env.PI_TINY_TRANSFORMERS_VERSION': JSON.stringify(inputs.transformers),
         'process.env.PI_DOCS_EMBED': JSON.stringify(inputs.docsPayload),
       },
       // Constraint 1: bytecode panics this Bun version for this module graph.
@@ -624,7 +611,7 @@ async function compile(): Promise<void> {
   const manifest = manifestFor(outfile, inputs.sdkVersion)
   fs.writeFileSync(path.join(distDir, 'omp-host.json'), `${JSON.stringify(manifest)}\n`, 'utf8')
   console.log(
-    `[build] hostVersion=${HOST_VERSION} sdk=${inputs.sdkVersion} transformers=${inputs.transformers} bun=${Bun.version} ` +
+    `[build] hostVersion=${HOST_VERSION} sdk=${inputs.sdkVersion} bun=${Bun.version} ` +
       `outfile=${path.relative(repoRoot, outfile)} bytes=${manifest.bytes} sha256=${manifest.sha256} buildMs=${Date.now() - started}`,
   )
 }
@@ -673,7 +660,6 @@ async function bundle(): Promise<void> {
       target: 'bun',
       external: [...COMPILED_EXTERNAL_DEPENDENCIES],
       define: {
-        'process.env.PI_TINY_TRANSFORMERS_VERSION': JSON.stringify(inputs.transformers),
         'process.env.PI_DOCS_EMBED': JSON.stringify(inputs.docsPayload),
       },
       minify: { identifiers: false, keepNames: true },

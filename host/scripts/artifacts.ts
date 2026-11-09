@@ -12,6 +12,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { verifyBundleProvenance, verifyHostProvenance } from './provenance.ts'
+import { PLATFORM_TAG, resolvePackage } from './packages.ts'
 
 const repoRoot = path.resolve(import.meta.dir, '..', '..')
 const evidenceDir = path.join(repoRoot, 'host', 'evidence')
@@ -43,15 +44,34 @@ const distInfo = describe(dist)
 const installedInfo = describe(installed)
 const provenance = verifyHostProvenance(repoRoot)
 const bundleProvenance = verifyBundleProvenance(repoRoot)
-const addonDir = path.join(repoRoot, 'node_modules', '.pnpm')
-const addonPackage = fs.readdirSync(addonDir).find(name => name.startsWith('@oh-my-pi+pi-natives-win32-x64@'))
-if (addonPackage === undefined) throw new Error('the platform natives package is not installed')
-const addonSource = path.join(addonDir, addonPackage, 'node_modules', '@oh-my-pi', 'pi-natives-win32-x64', 'pi_natives.win32-x64-baseline.node')
+// The addon is resolved the way the build resolves it: from the installed coding agent down to
+// the platform leaf. Globbing `.pnpm` picked whichever version directory the filesystem listed
+// first, so after an upgrade that left an unpruned old tree the check reported the previous
+// version's file while the binary carried the new one (2026-11-09).
+const installedCodingAgent = resolvePackage(repoRoot, '@oh-my-pi/pi-coding-agent')
+const natives = resolvePackage(installedCodingAgent, '@oh-my-pi/pi-natives')
+const nativesManifest = JSON.parse(fs.readFileSync(path.join(natives, 'package.json'), 'utf8')) as { version?: unknown }
+if (typeof nativesManifest.version !== 'string') throw new Error('@oh-my-pi/pi-natives manifest has no string version')
+const addonVersion = nativesManifest.version
+const addonSource = path.join(
+  resolvePackage(natives, `@oh-my-pi/pi-natives-${PLATFORM_TAG}`),
+  `pi_natives.${PLATFORM_TAG}-baseline.node`,
+)
 // The addon is staged into a per-version cache directory (`<xdg>/omp/natives/<version>/`), so the
 // version is read off the installed package rather than written down here: a pinned literal would
 // silently stop matching on the next dependency bump and report a missing extraction as a fact.
-const addonVersion = addonPackage.slice(addonPackage.lastIndexOf('@') + 1)
-const extracted = path.join(repoRoot, 'host', '.dev-data', 'data', 'host', 'xdg', 'omp', 'natives', addonVersion, 'pi_natives.win32-x64-baseline.node')
+const extracted = path.join(
+  repoRoot,
+  'host',
+  '.dev-data',
+  'data',
+  'host',
+  'xdg',
+  'omp',
+  'natives',
+  addonVersion,
+  `pi_natives.${PLATFORM_TAG}-baseline.node`,
+)
 const md5 = (file: string): string => createHash('md5').update(fs.readFileSync(file)).digest('hex')
 
 const report = {

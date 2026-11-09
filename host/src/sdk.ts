@@ -606,7 +606,15 @@ export async function loadSdk(): Promise<SdkBundle> {
     },
     lspClients: () => lsp.getLspStatus().length,
     connectedMcpServers: () => mcp.MCPManager.instance()?.getConnectedServers() ?? [],
-    mcpManager: () => mcp.MCPManager.instance(),
+    // `instance()` is typed as `MCPManagerApi` because a subagent worker thread installs a proxy
+    // there; this host runs the process that owns the connections, and the capability commands need
+    // the class's lifecycle accessors (`getConnectionStatus`, `waitForStartup`, `connectServers`),
+    // which the proxy API deliberately does not carry. A proxied value is not one this accessor can
+    // serve, and the session records below are the second place the commands look.
+    mcpManager: () => {
+      const manager = mcp.MCPManager.instance()
+      return manager instanceof mcp.MCPManager ? manager : undefined
+    },
     reconnectMcpServer: mcpOauth.reconnectMcpManagerServer,
     availableCommands: session => commands.buildAvailableSlashCommands(session),
     executeBuiltinCommand: (text, runtime) => builtins.executeAcpBuiltinSlashCommand(text, runtime),

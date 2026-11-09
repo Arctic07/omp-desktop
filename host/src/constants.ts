@@ -493,7 +493,7 @@ export const PLUGIN_SETTING_TEXT_MAX = 8_192
  * accepts the prefixed and the unprefixed spelling of each file, so a probe that looked for one of
  * them would report a plugin that configures an MCP server, an LSP server or a DAP adapter as
  * carrying no code - and the consent gate would wave it through (spec §15.1-3, H1). The engine's own
- * lists were read from `@oh-my-pi/pi-coding-agent@18.6.1`
+ * lists were read from `@oh-my-pi/pi-coding-agent@18.18.2`
  * (`src/discovery/omp-plugins.ts`, `src/lsp/config.ts`, `src/dap/config.ts`); changing a set here is
  * a change to that contract, and must be mirrored in `engine-contract.ts` and the plugins smoke.
  */

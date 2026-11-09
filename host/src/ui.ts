@@ -151,6 +151,8 @@ export class UiBridge {
   context(): ExtensionUIContext {
     const engine = this.#engine
     return {
+      // See `rerenderMessage`: no terminal surface to redraw.
+      refreshTranscript: () => {},
       confirm: (title, message, dialogOptions) =>
         this.#dialog({
           method: 'confirm',

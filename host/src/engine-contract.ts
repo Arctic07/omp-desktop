@@ -64,7 +64,7 @@ const MANIFEST_KEYS: Record<keyof PluginManifest, EngineKeyUse> = {
   hooks: 'entry-counted',
   extensions: 'entry-counted',
   features: 'entry-counted',
-  commands: `entry-ungated: 18.6.1 has no consumer for it (getAllPluginCommandPaths is exported but never called), so the row reports commandsDir as a code fact and gates on nothing; wiring it up must add a consent reason first`,
+  commands: `entry-ungated: 18.18.2 has no consumer for it (getAllPluginCommandPaths is exported but never called), so the row reports commandsDir as a code fact and gates on nothing; wiring it up must add a consent reason first`,
   settings: 'read',
 }
 
@@ -80,7 +80,7 @@ const FEATURE_KEYS: Record<keyof PluginFeature, EngineKeyUse> = {
   extensions: 'entry-counted',
   tools: 'entry-counted',
   hooks: 'entry-counted',
-  commands: `entry-ungated: same gap as PluginManifest.commands - 18.6.1 has no consumer for these files and no consent reason covers them`,
+  commands: `entry-ungated: same gap as PluginManifest.commands - 18.18.2 has no consumer for these files and no consent reason covers them`,
 }
 
 /**
