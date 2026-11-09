@@ -183,7 +183,7 @@ The frontend calls these capabilities and displays their results; it never copie
 
 - `lib.rs` only initializes and registers commands. A command is thin; domain logic lives in a service.
 - Rust internals are `snake_case`; cross-IPC fields declare their serialized names explicitly, and the TypeScript type and the Rust DTO change together.
-- External input is validated at the Rust boundary: path normalization and a workspace containment assertion; explicit caps on Git paths, command arguments, and file size.
+- External input is validated at the Rust boundary: path normalization and a workspace containment assertion; explicit caps on Git paths, command arguments, and file size. A browsed path stays out of generated trees and `.git`; a file a page names outright may sit in a generated tree, never in `.git`.
 - Failure returns a structured `Result`. `unwrap`, `expect`, and panics never handle user input, files, network, or process errors at runtime.
 - Avoid needless `clone`, allocation, copying, and re-parsing. File, search, Git, and process work carries memory, output-size, and time bounds.
 - Blocking file, Git, process, and CPU work never blocks the async runtime. Long tasks are inspectable, cancellable, and reclaimable on failure, and release their processes, handles, temporary files, and watchers when they end.

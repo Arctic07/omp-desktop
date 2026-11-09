@@ -2,9 +2,10 @@
  * The workspace file commands: one directory listing, one file read, one path search.
  *
  * The desktop owns every filesystem decision (`src-tauri/src/services/workspace.rs`): paths here
- * are workspace-relative, and the Rust side canonicalizes them, refuses escapes and ignored
- * directories, and bounds every read. The file panel draws what comes back; it never touches a
- * path on its own.
+ * are workspace-relative, and the Rust side canonicalizes them, refuses escapes, keeps a browsed
+ * path out of generated trees and `.git`, and bounds every read. A path a transcript printed is
+ * read, saved and revealed even inside a generated tree, but never inside `.git`. The file panel
+ * draws what comes back; it never touches a path on its own.
  */
 
 import { call } from '@/api/client'
@@ -63,9 +64,10 @@ export function readWorkspaceFile(root: string, path: string): Promise<Workspace
 /**
  * Replace one existing workspace text file's contents.
  *
- * The desktop re-resolves `path` inside `root` (relative, not ignored, not escaping through a link),
- * refuses anything that is not a regular file, bounds the payload like a read, and swaps the bytes
- * in through a temporary copy, so a save is all-or-nothing (`services/workspace.rs`).
+ * The desktop re-resolves `path` inside `root` (relative, not escaping through a link, never
+ * repository metadata), refuses anything that is not a regular file, bounds the payload like a
+ * read, and swaps the bytes in through a temporary copy, so a save is all-or-nothing
+ * (`services/workspace.rs`).
  */
 export function writeWorkspaceFile(
   root: string,

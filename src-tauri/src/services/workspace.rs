@@ -21,8 +21,8 @@ const PATH_LIMIT: usize = 4096;
 const WORKSPACE_ENTRY_LIMIT: usize = 10_000;
 
 static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+/// Names a browse never shows and never walks into: generated trees.
 const IGNORED_NAMES: &[&str] = &[
-    ".git",
     "node_modules",
     "target",
     "dist",
@@ -36,22 +36,42 @@ const IGNORED_NAMES: &[&str] = &[
     ".DS_Store",
 ];
 
+/// The repository's own metadata: hidden like an ignored name, and refused even when a path names
+/// a file inside it. `.git/config` carries command lines (`core.sshCommand`, `core.fsmonitor`, a
+/// hook path) that the next git operation runs, and `.git/hooks/*` is what the next commit runs, so
+/// a write there is not a save this desktop performs for the page.
+const VCS_NAMES: &[&str] = &[".git"];
+
+fn matches_name(name: &OsStr, names: &[&str]) -> bool {
+    match name.to_str() {
+        Some(name) => names
+            .iter()
+            .any(|candidate| name.eq_ignore_ascii_case(candidate)),
+        None => false,
+    }
+}
+
+/// Whether a browse hides this name. The tree, the search, the `@` picker and a git path all ask
+/// here, so `.git` is hidden exactly as a generated tree is.
+pub(super) fn ignored_name(name: &OsStr) -> bool {
+    matches_name(name, IGNORED_NAMES) || matches_name(name, VCS_NAMES)
+}
+
+/// Whether a directly named path is refused as repository metadata.
+fn vcs_name(name: &OsStr) -> bool {
+    matches_name(name, VCS_NAMES)
+}
+
 pub(crate) fn current_working_directory() -> Result<String, String> {
     std::env::current_dir()
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| error.to_string())
 }
 
-pub(super) fn ignored_name(name: &OsStr) -> bool {
-    match name.to_str() {
-        Some(name) => IGNORED_NAMES
-            .iter()
-            .any(|ignored| name.eq_ignore_ascii_case(ignored)),
-        None => false,
-    }
-}
-
-fn validate_relative_path(path: &Path) -> Result<(), String> {
+/// The shape every workspace-relative path must have: relative, and no segment that climbs out.
+///
+/// Both policies below start here; what they add is which names they refuse.
+fn validate_relative_shape(path: &Path) -> Result<(), String> {
     if path.is_absolute() {
         return Err("Workspace path must be relative".to_owned());
     }
@@ -59,15 +79,41 @@ fn validate_relative_path(path: &Path) -> Result<(), String> {
     for component in path.components() {
         match component {
             Component::CurDir => {}
-            Component::Normal(name) => {
-                if ignored_name(name) {
-                    return Err("Workspace path is ignored".to_owned());
-                }
-            }
+            Component::Normal(_) => {}
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
                 return Err("Workspace path escapes workspace root".to_owned());
             }
         }
+    }
+
+    Ok(())
+}
+
+/// The shape plus the browse policy: the tree, the search, the `@` picker and a launcher's target
+/// stay out of every hidden name, generated trees and `.git` alike.
+fn validate_browse_path(path: &Path) -> Result<(), String> {
+    validate_relative_shape(path)?;
+    if path
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if ignored_name(name)))
+    {
+        return Err("Workspace path is ignored".to_owned());
+    }
+
+    Ok(())
+}
+
+/// The shape plus the named-file policy: one file a page named outright is read, saved and revealed
+/// where it sits inside the root, generated trees included — a transcript prints a path to a build
+/// artefact and the click names that file, not the tree. Repository metadata stays refused, because
+/// `.git` holds command lines rather than content.
+fn validate_named_path(path: &Path) -> Result<(), String> {
+    validate_relative_shape(path)?;
+    if path
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if vcs_name(name)))
+    {
+        return Err("Workspace path is repository metadata".to_owned());
     }
 
     Ok(())
@@ -83,16 +129,21 @@ pub(crate) fn canonical_workspace_root(root: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
-/// Resolve one workspace-relative path against its root: the canonical root, and the canonical
-/// target it names. A path that is absolute, ignored, missing, or that escapes the root is
-/// refused, so a caller never launches anything the workspace does not hold.
-pub(crate) fn resolve_workspace_path(
+/// Resolve one workspace-relative path against its root under one policy: the canonical root, and
+/// the canonical target it names.
+///
+/// Containment is the part both callers share — the target must canonicalize inside the root, so a
+/// link cannot carry a path out — and the policy decides only which relative paths are admitted.
+/// It runs on the spelling and again on the canonical path, so a link that resolves to a refused
+/// name (an alias of `.git`, say) is refused by the same policy that refuses the name itself.
+fn resolve_relative_under_root(
     root: &str,
     relative: &str,
+    validate: fn(&Path) -> Result<(), String>,
 ) -> Result<(PathBuf, PathBuf), String> {
     let canonical_root = canonical_workspace_root(root)?;
     let relative_path = Path::new(relative);
-    validate_relative_path(relative_path)?;
+    validate(relative_path)?;
 
     let target = canonical_root
         .join(relative_path)
@@ -101,8 +152,32 @@ pub(crate) fn resolve_workspace_path(
     if !target.starts_with(&canonical_root) {
         return Err("Workspace path escapes workspace root".to_owned());
     }
+    let canonical_relative = target
+        .strip_prefix(&canonical_root)
+        .map_err(|_| "Workspace path escapes workspace root".to_owned())?;
+    validate(canonical_relative)?;
 
     Ok((canonical_root, target))
+}
+
+/// Resolve one workspace-relative path a UI browses — a listing, a search, or a launcher's target
+/// — against its root. A path a page named outright goes through `resolve_workspace_file` instead.
+pub(crate) fn resolve_workspace_path(
+    root: &str,
+    relative: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    resolve_relative_under_root(root, relative, validate_browse_path)
+}
+
+/// Resolve one path a page named outright — a transcript's click on a printed path, and the read,
+/// save and reveal that follow it — against its root.
+///
+/// A generated tree the tree and the search stay out of (`target/`, `node_modules/`, `dist/`) is
+/// still a place an answer can print a path to, and a click on one names that file rather than
+/// asking to browse the tree; refusing it drew a failed read over files that plainly exist.
+/// Repository metadata is still refused (`validate_named_path`), and containment is unchanged.
+fn resolve_workspace_file(root: &str, relative: &str) -> Result<(PathBuf, PathBuf), String> {
+    resolve_relative_under_root(root, relative, validate_named_path)
 }
 
 pub(super) fn path_is_within_root(root: &Path, relative: &Path) -> bool {
@@ -132,7 +207,7 @@ pub(super) fn path_is_within_root(root: &Path, relative: &Path) -> bool {
 
 pub(crate) fn safe_git_path(root: &Path, path: &str) -> bool {
     let relative = Path::new(path);
-    validate_relative_path(relative).is_ok() && path_is_within_root(root, relative)
+    validate_browse_path(relative).is_ok() && path_is_within_root(root, relative)
 }
 
 pub(super) fn image_mime(path: &Path) -> Option<&'static str> {
@@ -267,7 +342,7 @@ pub(crate) fn list_workspace_entries(
 }
 
 pub(crate) fn read_workspace_file(root: String, path: String) -> Result<FileReadResult, String> {
-    let (_canonical_root, target) = resolve_workspace_path(&root, &path)?;
+    let (_canonical_root, target) = resolve_workspace_file(&root, &path)?;
     read_file_at(&target)
 }
 
@@ -425,21 +500,11 @@ pub(crate) fn write_workspace_file(
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let canonical_root = canonical_workspace_root(&root)?;
-    if !safe_git_path(&canonical_root, &path) {
-        return Err("Workspace path is invalid".to_owned());
-    }
+    let (_canonical_root, target) = resolve_workspace_file(&root, &path)?;
     if content.len() > TEXT_LIMIT {
         return Err("Workspace file content is too large".to_owned());
     }
 
-    let target = canonical_root
-        .join(Path::new(&path))
-        .canonicalize()
-        .map_err(|_| "Workspace file cannot be written".to_owned())?;
-    if !target.starts_with(&canonical_root) {
-        return Err("Workspace path escapes workspace root".to_owned());
-    }
     let metadata =
         fs::metadata(&target).map_err(|_| "Workspace file cannot be written".to_owned())?;
     if !metadata.is_file() {
@@ -453,7 +518,7 @@ pub(crate) fn reveal_workspace_file(
     root: String,
     path: String,
 ) -> Result<RevealWorkspaceFileResult, String> {
-    let (_canonical_root, target) = resolve_workspace_path(&root, &path)?;
+    let (_canonical_root, target) = resolve_workspace_file(&root, &path)?;
     #[cfg(target_os = "windows")]
     let ok = {
         let mut select_argument = OsString::from("/select,");
@@ -538,6 +603,11 @@ mod tests {
         fs::write(root.join("src/main.ts"), "").expect("workspace file");
         fs::create_dir_all(root.join("node_modules/pkg")).expect("ignored directory");
         fs::write(root.join("node_modules/pkg/index.js"), "").expect("ignored file");
+        fs::create_dir_all(root.join("target/release")).expect("build directory");
+        fs::write(root.join("target/release/omp-host.json"), "{}").expect("build artefact");
+        fs::create_dir_all(root.join(".git/hooks")).expect("repository metadata");
+        fs::write(root.join(".git/config"), "[core]").expect("git config");
+        fs::write(root.join(".git/hooks/pre-commit"), "").expect("git hook");
         root
     }
 
@@ -639,6 +709,102 @@ mod tests {
         assert!(directory_to_open(&root.join("gone.txt").to_string_lossy()).is_none());
         assert!(directory_to_open("src/nested").is_none());
         assert!(directory_to_open("").is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// An answer prints the path of a file the tree stays out of (`target/`, `node_modules/`,
+    /// `dist/`), and a click on that path reads and saves that one file: the browse policy is not
+    /// an access policy. Browsing the same directory is still refused, so the tree keeps its rule.
+    #[test]
+    fn a_named_file_under_a_hidden_directory_is_still_readable() {
+        let root = scratch("hidden-file");
+        let root_path = root.to_string_lossy().into_owned();
+        let hidden = "target/release/omp-host.json";
+
+        let read = read_workspace_file(root_path.clone(), hidden.to_owned())
+            .expect("a named file is read wherever it sits inside the root");
+        assert_eq!(read.kind, "text");
+
+        write_workspace_file(
+            root_path.clone(),
+            hidden.to_owned(),
+            "{\"built\":1}".to_owned(),
+        )
+        .expect("a named file is saved wherever it sits inside the root");
+        let read = read_workspace_file(root_path.clone(), hidden.to_owned()).expect("re-read");
+        assert_eq!(read.content.as_deref(), Some("{\"built\":1}"));
+
+        // The tree never lists the directory, and the browse resolver refuses to walk into it.
+        assert!(list_workspace_entries(root_path.clone(), "target".to_owned()).is_err());
+        assert!(!names(&root, ".").iter().any(|(name, _)| name == "target"));
+
+        assert!(read_workspace_file(root_path.clone(), "../outside.txt".to_owned()).is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Repository metadata is the one hidden name a directly named path may not reach: `.git/config`
+    /// and a hook are command lines the next git operation runs, not content a page reads or saves.
+    /// Every access it could take — read, save, reveal — is refused, and the file keeps its bytes.
+    #[test]
+    fn a_named_path_never_reaches_repository_metadata() {
+        let root = scratch("git-metadata");
+        let root_path = root.to_string_lossy().into_owned();
+
+        for path in [".git/config", ".git/hooks/pre-commit", ".git/HEAD"] {
+            assert!(
+                read_workspace_file(root_path.clone(), path.to_owned()).is_err(),
+                "{path} is not content"
+            );
+            assert!(
+                write_workspace_file(root_path.clone(), path.to_owned(), "x".to_owned()).is_err(),
+                "{path} is not writable"
+            );
+        }
+        assert!(super::reveal_workspace_file(root_path.clone(), ".git/config".to_owned()).is_err());
+
+        // The listing hides the directory exactly as an ignored name, so the tree cannot reach it.
+        assert!(!names(&root, ".").iter().any(|(name, _)| name == ".git"));
+        assert_eq!(
+            fs::read_to_string(root.join(".git/config")).expect("git config"),
+            "[core]"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A link that resolves to repository metadata is refused as what it resolves to, not as the
+    /// name it was spelled with. A junction is the one directory link a non-elevated Windows
+    /// account can create — `symlink_dir` needs a privilege this suite does not hold — and Unix
+    /// uses a symlink, skipping if the filesystem refuses one.
+    #[test]
+    fn a_link_to_repository_metadata_is_refused() {
+        let root = scratch("git-alias");
+        let link = root.join("alias");
+        #[cfg(unix)]
+        let created = std::os::unix::fs::symlink(root.join(".git"), &link).is_ok();
+        #[cfg(windows)]
+        let created = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(root.join(".git"))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        #[cfg(windows)]
+        assert!(created, "a junction requires no privilege on NTFS");
+
+        if created {
+            let root_path = root.to_string_lossy().into_owned();
+            assert!(read_workspace_file(root_path.clone(), "alias/config".to_owned()).is_err());
+            assert!(
+                write_workspace_file(root_path, "alias/config".to_owned(), "x".to_owned()).is_err()
+            );
+            assert_eq!(
+                fs::read_to_string(root.join(".git/config")).expect("git config"),
+                "[core]"
+            );
+        }
+
         let _ = fs::remove_dir_all(&root);
     }
 
