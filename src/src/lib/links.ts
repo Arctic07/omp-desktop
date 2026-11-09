@@ -5,7 +5,10 @@
  * so workspace links in a conversation's Markdown, a settings page's own documentation link and
  * anything a later surface adds all end here, and none of them can forget to. The reference
  * desktop's default is the work-panel browser; a modified click (Ctrl/Cmd/Shift/Alt) asks for the
- * machine's own browser instead, which is also the fallback when no conversation is on screen.
+ * machine's own browser instead, which is also the fallback when no conversation is on screen. An
+ * anchor marked `data-external` states that the machine's own browser is its only destination — the
+ * About page's resource rows say so in their own description — so it opens there on a plain click
+ * too.
  *
  * Nothing is navigated here: the application's own webview must never replace itself with a web
  * page. A refusal is swallowed — the reader can see that nothing opened, and an error dialog over a
@@ -35,7 +38,7 @@ export function useDocumentLinks(): void {
       if (!/^https?:\/\//i.test(href)) return
       const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       const sessionId = activeRecord(sessionStore.get())?.id ?? null
-      if (modified || sessionId === null) {
+      if (modified || sessionId === null || anchor?.hasAttribute('data-external')) {
         void openExternal(href).catch(() => undefined)
         return
       }

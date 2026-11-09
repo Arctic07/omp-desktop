@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ExternalLink, Globe, Info, Terminal } from 'lucide-react'
+import { BookOpen, Code, ExternalLink, Globe, Info, Terminal } from 'lucide-react'
 
 import { runtimeRestart } from '@/api/agent'
 import { appVersion } from '@/api/app'
@@ -330,13 +330,17 @@ function GithubMark({ className }: { className?: string }) {
   )
 }
 
-/** The leading icon the two resources this page added wear; the pre-existing rows keep their shape. */
+/** The leading icon every resource row wears, in the settings icon grid's own size and tone. */
 function resourceIcon(id: string): ReactNode | undefined {
   switch (id) {
     case 'website':
       return <Globe className="size-4" aria-hidden="true" />
     case 'repository':
       return <GithubMark className="size-4" />
+    case 'documentation':
+      return <BookOpen className="size-4" aria-hidden="true" />
+    case 'engine-source':
+      return <Code className="size-4" aria-hidden="true" />
     default:
       return undefined
   }
@@ -435,6 +439,7 @@ export default function AboutSection() {
               href={resource.href}
               target="_blank"
               rel="noreferrer"
+              data-external
               className="block border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <SettingsRow
