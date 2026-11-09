@@ -105,6 +105,10 @@ bun run check:upstream   # 对比锁定的 SDK 与 npm latest；退出码 10 表
 
 退出码：`0` 已最新；`10` 上游有新版本；`1` 读取或网络失败、或版本无法比较（如上游是预发布），原因打印在 stderr，不静默。
 
+## 许可证
+
+MIT。桌面应用内嵌 MIT 授权的 omp 引擎；本项目自身条款见 [`LICENSE`](LICENSE)，随包分发的引擎与字体声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+
 ## 链接
 
 - 官网：<https://omp.auiox.com/>

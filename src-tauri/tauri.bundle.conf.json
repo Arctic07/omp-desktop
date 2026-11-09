@@ -3,6 +3,10 @@
   "bundle": {
     "externalBin": [],
     "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md",
+      "../src/src/fonts/misans/LICENSE": "MiSans-LICENSE.txt",
       "binaries/bundle": "bundle",
       "resources/plugin-templates": "plugin-templates",
       "resources/builtin-browser-marketplace": "builtin-browser-marketplace"

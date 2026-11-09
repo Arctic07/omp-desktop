@@ -49,6 +49,10 @@
     ],
     "externalBin": ["binaries/omp-host"],
     "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md",
+      "../src/src/fonts/misans/LICENSE": "MiSans-LICENSE.txt",
       "binaries/omp-host.json": "omp-host.json",
       "resources/plugin-templates": "plugin-templates",
       "resources/builtin-browser-marketplace": "builtin-browser-marketplace"

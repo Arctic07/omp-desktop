@@ -77,6 +77,10 @@ cargo test --lib --manifest-path src-tauri/Cargo.toml
 bun run check:upstream   # compares the pinned SDK with the npm latest; exit 10 means an update is available
 ```
 
+## License
+
+MIT. The desktop application embeds the MIT-licensed omp engine; the project's own terms are in [`LICENSE`](LICENSE), and the bundled engine and font notices are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Links
 
 - Website: <https://omp.auiox.com/>

@@ -3,6 +3,7 @@ name = "omp_desktop"
 version = "0.1.0"
 description = "Omp Desktop"
 authors = ["OMP"]
+license = "MIT"
 edition = "2021"
 build = "build.rs"
 
