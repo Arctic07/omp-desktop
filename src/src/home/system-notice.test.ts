@@ -612,3 +612,21 @@ Merged into ReviewAlpha's result.
   assert.equal(job.note, "Merged into ReviewAlpha's result.")
   assert.deepEqual(job.noteSpans, [{ kind: 'text', text: "Merged into ReviewAlpha's result." }])
 })
+
+/** The bubble's own reading: a call the model appended to its answer is markup, not words. */
+test('a call written as markup is not one of the answer’s words', () => {
+  const answer = '已完成，分支留在本地。\n\n<ask i="Confirming merge" questions="[{"id": "merge"}]'
+  assert.equal(stripModelTags(answer), '已完成，分支留在本地。\n\n')
+  // The two vocabularies are stripped together, whichever order they were written in.
+  assert.equal(
+    stripModelTags('<final>结论：可以。</final>\n<read i="Reading" path="a.ts"/>'),
+    '结论：可以。\n',
+  )
+})
+
+/** A model tag's body is words, and the markup inside it is still markup. */
+test('a model tag’s body is stripped like the prose around it', () => {
+  const answer = '<important>先看 <ask i="x" questions="[1]"/> 再决定</important>'
+  assert.equal(messageProse(answer), '先看 再决定')
+  assert.equal(stripModelTags('先看 <ask i="x" questions="[1]"/> 再决定'), '先看 再决定')
+})

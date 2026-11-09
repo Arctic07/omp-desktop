@@ -19,6 +19,9 @@
  * it. Nothing here drops words a model wrote as its answer.
  */
 
+// Relative, with its extension: this module is read by the test runner as well as by the bundler.
+import { codeRanges, inSpans, startsLine, without, type Span } from './code-ranges.ts'
+
 /** What one message says: the reasoning its envelope carried, and the words outside it. */
 export interface ReasoningEcho {
   /** The step's thinking, empty when the text carries no envelope. */
@@ -47,9 +50,6 @@ function closerOf(name: string): string {
  */
 const THINKING_MARKER = /<(\/?)thinking[ \t]*>/g;
 
-/** A half-open range of characters in the text these were read from. */
-type Span = readonly [start: number, end: number];
-
 /**
  * A message's reasoning and its answer, split out of the text one envelope vocabulary.
  *
@@ -69,7 +69,7 @@ export function splitReasoningEcho(text: string): ReasoningEcho {
   ) {
     return { reasoning: "", answer: text };
   }
-  const fenced = fencedRanges(text);
+  const fenced = codeRanges(text);
   const openers = [...text.matchAll(OPENER)];
   const opened = new Set(openers.map((match) => match[1]!));
   const cuts: Span[] = [];
@@ -199,27 +199,12 @@ function beginsAnswer(text: string, from: number): boolean {
   return !QUOTED.test(previous);
 }
 
-/** Whether nothing but whitespace of its own line comes before `at`. */
-function startsLine(text: string, at: number): boolean {
-  for (let index = at - 1; index >= 0; index -= 1) {
-    const char = text[index];
-    if (char === "\n") return true;
-    if (char !== " " && char !== "\t") return false;
-  }
-  return true;
-}
-
 /** The first closing tag at or after `from` that is not inside a fenced block, or -1. */
 function findCloser(text: string, from: number, closer: string, fenced: readonly Span[]): number {
   for (let at = text.indexOf(closer, from); at !== -1; at = text.indexOf(closer, at + closer.length)) {
     if (!inSpans(fenced, at)) return at;
   }
   return -1;
-}
-
-/** Whether `at` falls inside one of the ranges. */
-function inSpans(spans: readonly Span[], at: number): boolean {
-  return spans.some(([start, end]) => at >= start && at < end);
 }
 
 /**
@@ -241,58 +226,9 @@ function withoutThinkingMarkers(text: string): string {
   return cuts.length === 0 ? text : without(text, cuts).trim();
 }
 
-/** Where code runs: the fences above and the one-line spans between them. */
-function codeRanges(text: string): readonly Span[] {
-  const ranges: Span[] = [...fencedRanges(text)];
-  for (const match of text.matchAll(/`[^`\n]*`/g)) {
-    const at = match.index ?? 0;
-    if (!inSpans(ranges, at)) ranges.push([at, at + match[0].length]);
-  }
-  return ranges;
-}
-
 /** Two stretches of one message's words, kept as they were when the other is empty. */
 function joinSections(first: string, second: string): string {
   if (first === "") return second;
   if (second === "") return first;
   return `${first.trim()}\n\n${second.trim()}`;
-}
-
-/** The text with every range taken out; ranges may arrive in any order and may not overlap. */
-function without(text: string, cuts: readonly Span[]): string {
-  const ordered = [...cuts].sort((left, right) => left[0] - right[0]);
-  let kept = "";
-  let cursor = 0;
-  for (const [start, end] of ordered) {
-    if (start > cursor) kept += text.slice(cursor, start);
-    cursor = Math.max(cursor, end);
-  }
-  return kept + text.slice(cursor);
-}
-
-/**
- * Where the fenced code blocks run.
- *
- * A fence opens on a line that starts with three backticks or tildes and closes on the next line
- * that does — an unterminated one runs to the end of the message, because a fence still being
- * streamed is a block whose tags are code too.
- */
-function fencedRanges(text: string): readonly Span[] {
-  const ranges: Span[] = [];
-  let open = -1;
-  let offset = 0;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      if (open === -1) {
-        open = offset;
-      } else {
-        ranges.push([open, offset + line.length]);
-        open = -1;
-      }
-    }
-    offset += line.length + 1;
-  }
-  if (open !== -1) ranges.push([open, text.length]);
-  return ranges;
 }
