@@ -7,6 +7,7 @@
  */
 use serde_json::json;
 
+use super::compaction::compaction_end_notice;
 use super::*;
 use crate::services::runtime::events::frames::{attach_ending, ends_turn, notice_frame};
 use crate::services::runtime::DELTA_FLUSH_BYTES;
@@ -819,4 +820,46 @@ fn a_notice_keeps_the_code_its_event_carried() {
     // An empty code is not a code.
     let blank = notice_frame(&json!({"level": "info", "code": "", "message": "hi"}));
     assert_eq!(blank.get("code"), None);
+}
+
+/// A failure the reader asked for is the command's own line, not a second notice above the field.
+///
+/// `/compact` prints `Compaction failed: …` into the conversation (`host/src/slash.ts::commandReportCode`),
+/// so a manual end that failed must leave the notice path silent. A pass nobody asked for - an
+/// automatic compaction at a boundary, or one an endpoint performed - has no command line, and
+/// the strip is the only place its failure exists.
+#[test]
+fn a_manual_compaction_failure_is_left_to_its_command_line() {
+    let failed = json!({"errorMessage": "the summarizer exploded"});
+    assert_eq!(
+        compaction_end_notice("manual_compaction_end", &failed),
+        None
+    );
+
+    // The same failure with an explicit `skipped: false` — the engine saying it did rewrite
+    // something — still belongs to the command line, not to a success notice above the field.
+    let failed_after_rewrite = json!({"errorMessage": "the summarizer exploded", "skipped": false});
+    assert_eq!(
+        compaction_end_notice("manual_compaction_end", &failed_after_rewrite),
+        None
+    );
+
+    let notice = compaction_end_notice("auto_compaction_end", &failed).expect("a notice");
+    assert_eq!(notice["level"], "warning");
+    let message = notice["message"].as_str().expect("a string");
+    assert!(message.contains("summarizer exploded"));
+
+    // A manual pass with nothing to compact is only skipped: the engine still says so, on the code
+    // the conversation's page suppresses, because the command's own line already carries the why.
+    let skipped =
+        json!({"skipped": true, "errorMessage": "Nothing to compact (session too small)"});
+    let skipped_notice =
+        compaction_end_notice("manual_compaction_end", &skipped).expect("a notice");
+    assert_eq!(skipped_notice["code"], "engine_compaction_skipped");
+
+    // A cancelled pass keeps its word even when the abort carried a sentence.
+    let aborted = json!({"aborted": true, "errorMessage": "the reader stopped it"});
+    let aborted_notice =
+        compaction_end_notice("manual_compaction_end", &aborted).expect("a notice");
+    assert_eq!(aborted_notice["code"], "engine_compaction_stopped");
 }

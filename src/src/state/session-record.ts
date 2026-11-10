@@ -18,6 +18,8 @@
 
 import type { ApiError } from '@/api/client'
 import type { SessionEvent, SessionRuntimeState } from '@/api/session-types'
+// Relative with its extension: this module is read by the test runner as well as by the bundler.
+import { ENGINE_COMPACTION_REPORT_CODE, ENGINE_RECAP_CODE } from '../api/session-types.ts'
 import type { WorkspaceSessions } from '@/state/session-lists'
 import { createStore } from '@/state/store'
 import {
@@ -259,8 +261,9 @@ export function noteFailure(sessionId: string, failure: ApiError): void {
  * stack of identical lines the reader has to dismiss one at a time. The Vue front end drops the same
  * six codes and keeps a single notice slot, which is why one compaction never read as four there.
  *
- * What is deliberately kept: a notice the engine worded itself (a compaction that *failed* keeps its
- * reason, which exists nowhere else) and the host's own account of itself.
+ * What is deliberately kept: a notice the engine worded itself (an automatic or endpoint compaction
+ * that *failed* keeps its reason, which exists nowhere else; the manual one is the command's own
+ * transcript line, `host/src/slash.ts::commandReportCode`) and the host's own account of itself.
  */
 const ENGINE_PROGRESS_CODES: Readonly<Record<string, true>> = {
   engine_retrying: true,
@@ -272,7 +275,9 @@ const ENGINE_PROGRESS_CODES: Readonly<Record<string, true>> = {
   // The idle recap is not suppressed - it is drawn as a row of the transcript itself
   // (`state/transcript.ts` routes it by this code), so it must not be written here as well. One
   // fact, one place: a recap in the notice strip beside its own row is the same sentence twice.
-  engine_recap: true,
+  [ENGINE_RECAP_CODE]: true,
+  // The report a compaction prints is the same case: a transcript row, not a line to dismiss.
+  [ENGINE_COMPACTION_REPORT_CODE]: true,
 }
 
 /**

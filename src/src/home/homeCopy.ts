@@ -136,6 +136,8 @@ export interface HomeCopy {
   thinkingToggle: string
   /** What a turn in flight is called while it runs, beside the running component's timer. */
   workingLabel: string
+  /** What a context rewrite is called while it runs, beside the running row's timer. */
+  compactingLabel: string
   /**
    * What a turn the engine is retrying is called, with the attempt it is on.
    *
@@ -504,6 +506,7 @@ export const COPY: Localized<HomeCopy> = {
     thinkingLabel: "Thinking",
     thinkingToggle: "Show the agent's reasoning",
     workingLabel: "Working…",
+    compactingLabel: "Compacting context…",
     retryingLabel: (attempt, max) => `Reconnecting… ${attempt}/${max}`,
 
     conversationLoading: "Reading the conversation",
@@ -775,6 +778,7 @@ export const COPY: Localized<HomeCopy> = {
     thinkingLabel: "思考",
     thinkingToggle: "查看智能体的推理过程",
     workingLabel: "工作中…",
+    compactingLabel: "压缩上下文中…",
     retryingLabel: (attempt, max) => `重新连接中… ${attempt}/${max}`,
 
     conversationLoading: "正在读取会话",

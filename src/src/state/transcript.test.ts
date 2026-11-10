@@ -811,10 +811,11 @@ test('a reminder frame is a row of its own, and the same frame twice is one row'
   assert.ok(row.text.includes('rule="ts-no-any"'))
 })
 
-test('the idle recap becomes a transcript row, and every other notice stays out of it', () => {
-  // The recap is the one notice about the conversation rather than the machinery, so it is drawn
-  // where the conversation is (`ConversationPane` routes the row by the message kind) instead of in
-  // the strip above the composer. A retry notice describes the machinery and stays there.
+test('the transcript notices become rows, and every other notice stays out of it', () => {
+  // Two notices are about the conversation rather than the machinery - the idle recap and the
+  // report a compaction prints - so they are drawn where the conversation is (`ConversationPane`
+  // routes the row by the message kind) instead of in the strip above the composer. A retry notice
+  // describes the machinery and stays there.
   const recap: SessionEvent = {
     type: 'notice',
     level: 'info',
@@ -828,6 +829,7 @@ test('the idle recap becomes a transcript row, and every other notice stays out 
   const [row] = withRecap.messages
   assert.ok(row !== undefined && row.kind === 'notice')
   assert.equal(row.id, 'engine_recap-12')
+  assert.equal(row.code, 'engine_recap')
   assert.equal(row.text, 'The parser is fixed; the smoke still fails on the second scenario.')
 
   // A second stretch is a second line: the recap is a journal of where things stood, not a state
@@ -835,15 +837,31 @@ test('the idle recap becomes a transcript row, and every other notice stays out 
   const again = foldTranscript(withRecap, { ...recap, seq: 30, message: 'Waiting on the review.' })
   assert.equal(again.messages.length, 2)
 
+  // The compaction's own report is the second: the engine's sentence with the tokens it saved.
+  const compaction: SessionEvent = {
+    type: 'notice',
+    level: 'info',
+    code: 'engine_compaction_report',
+    message: 'Compaction complete. Tokens: 43483 -> 22044 (saved 21439).',
+    seq: 31,
+  }
+  const withCompaction = foldTranscript(again, compaction)
+  assert.equal(withCompaction.messages.length, 3)
+  const report = withCompaction.messages[2]
+  assert.ok(report !== undefined && report.kind === 'notice')
+  assert.equal(report.id, 'engine_compaction_report-31')
+  assert.equal(report.code, 'engine_compaction_report')
+  assert.equal(report.text, 'Compaction complete. Tokens: 43483 -> 22044 (saved 21439).')
+
   const retry: SessionEvent = {
     type: 'notice',
     level: 'warning',
     code: 'engine_retrying',
     message: 'The engine is retrying the last request.',
-    seq: 31,
+    seq: 32,
   }
   // A notice about the machinery is not a row; it belongs to the record's own strip
   // (`state/session-record.ts`).
-  const withRetry = foldTranscript(again, retry)
-  assert.equal(withRetry.messages.length, 2)
+  const withRetry = foldTranscript(withCompaction, retry)
+  assert.equal(withRetry.messages.length, 3)
 })

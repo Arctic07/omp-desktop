@@ -41,6 +41,27 @@ import type { UiBridge } from './ui.ts'
  */
 const OUTPUT_LIMIT = 4_000
 
+/**
+ * The notice code a `/compact` prints its report under.
+ *
+ * The report is about the conversation — how many tokens the rewrite saved — rather than the
+ * machinery, so it travels with a code the frontend routes to a transcript row
+ * (`src/src/state/transcript.ts`) instead of the dismissible strip above the field. Every other
+ * command output keeps the engine's own notice channel.
+ */
+export const COMPACTION_REPORT_CODE = 'engine_compaction_report'
+
+/**
+ * The report code one command's output belongs under, or `undefined` for the notice strip.
+ *
+ * A builtin is addressed by the prompt's first word and may carry a mode or instructions after it,
+ * so the address is read the way the engine reads it: the first whitespace-delimited token.
+ */
+export function commandReportCode(text: string): string | undefined {
+  const first = text.trimStart().split(/\s+/, 1)[0]
+  return first === '/compact' ? COMPACTION_REPORT_CODE : undefined
+}
+
 /** What a `/` prompt did, or `null` when the text is not a command this host runs itself. */
 export type SlashCommandRun =
   | { readonly kind: 'handled'; readonly agentInvoked: boolean }
@@ -68,7 +89,10 @@ type SkillCommandRun =
 export interface SlashCommandOptions {
   readonly sdk: SdkBundle
   readonly session: AgentSession
-  /** One command output, on the engine's own notice channel. */
+  /**
+   * One command output. The caller decides where it lands: a report with a host code (the one a
+   * `/compact` prints under) becomes a transcript row, every other output a line in the strip.
+   */
   readonly output: CommandOutputSink
   /** Rebuild the session's advertised command list and republish it. */
   readonly refreshCommands: () => Promise<void>

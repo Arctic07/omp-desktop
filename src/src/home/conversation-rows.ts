@@ -42,7 +42,7 @@ export function hasSearchCard(
 /** One injected reminder: the harness explaining a rule check that fired on a call. */
 export type ReminderMessage = Extract<ChatMessage, { kind: "reminder" }>;
 
-/** One engine notice kept in the transcript: the idle recap. */
+/** One engine notice kept in the transcript: the idle recap, or a compaction's report. */
 export type NoticeMessage = Extract<ChatMessage, { kind: "notice" }>;
 
 /**
@@ -637,9 +637,11 @@ export function buildRows(
       continue;
     }
     if (message.kind === "notice") {
-      // An engine notice the reader asked to keep (the idle recap). It arrives between turns, so the
-      // calls above are folded first; the row is the sentence itself - no sender, no footer, no
-      // ending - because it is an annotation on the conversation rather than a step of it.
+      // An engine notice kept in the transcript (the idle recap, a compaction's report). It arrives
+      // between turns, so the calls above are folded first; the row carries the sentence itself —
+      // no footer, no ending — because it is an annotation on the conversation rather than a step
+      // of it. `namesSender` stays false here because the pane, not the row, decides the speaker
+      // line: the report gets the agent's, the recap none (`home/ConversationPane.tsx`).
       flush();
       rows.push({
         kind: "single",

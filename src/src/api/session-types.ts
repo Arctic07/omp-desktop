@@ -391,6 +391,18 @@ export interface SubagentRow {
   recentOutput: string[]
 }
 
+/**
+ * The codes the host puts on the notices that belong in the transcript, and the only two a notice
+ * row can carry.
+ *
+ * One home for both sides of the rule: `state/transcript.ts` decides which notices become rows, and
+ * `components/agents/notice-row.tsx` decides how a row reads. Adding a code to the union forces both
+ * of them to answer for it.
+ */
+export const ENGINE_RECAP_CODE = 'engine_recap'
+export const ENGINE_COMPACTION_REPORT_CODE = 'engine_compaction_report'
+export type TranscriptNoticeCode = typeof ENGINE_RECAP_CODE | typeof ENGINE_COMPACTION_REPORT_CODE
+
 /** One row of a conversation, discriminated on `kind` (lowercase). */
 export type ChatMessage =
   | {
@@ -419,16 +431,19 @@ export type ChatMessage =
     }
   | {
       /**
-       * An engine notice the reader asked to keep in the transcript: the idle recap.
+       * An engine notice that belongs in the transcript: the idle recap and the report a compaction
+       * prints when it finishes.
        *
        * Every other notice is a line about the machinery (a retry, a backpressure pause) and lives
-       * above the composer, where it can be dismissed. A recap is about the conversation itself, so
-       * it is drawn where the conversation is, as the one line the engine's own terminal draws.
+       * above the composer, where it can be dismissed. These two are about the conversation itself,
+       * so they are drawn where the conversation is, as the one line the engine's own terminal draws.
        */
       kind: 'notice'
       id: string
       at: number
       text: string
+      /** The code this row was routed by (`state/transcript.ts`); it decides how the row reads. */
+      code: TranscriptNoticeCode
     }
   | {
       /**

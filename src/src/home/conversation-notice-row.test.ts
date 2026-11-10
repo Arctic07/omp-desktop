@@ -45,7 +45,7 @@ test('the idle recap is one row of its own, with no sender and no turn footer', 
   const rows = buildRows([
     user('u1', 'go'),
     assistant('a1', 'done'),
-    { kind: 'notice', id: 'engine_recap-9', at: clock + 5000, text: 'The parser is fixed.' },
+    { kind: 'notice', id: 'engine_recap-9', at: clock + 5000, text: 'The parser is fixed.', code: 'engine_recap' },
   ])
 
   const last = rows[rows.length - 1]

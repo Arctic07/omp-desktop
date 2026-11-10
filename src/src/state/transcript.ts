@@ -20,6 +20,13 @@ import type {
   TurnOutcome,
   UiRequest,
 } from '@/api/session-types'
+// Relative with its extension: this module is read by the test runner as well as by the bundler,
+// and the runner has no alias to resolve (`home/composer-commands.ts` says the same).
+import {
+  ENGINE_COMPACTION_REPORT_CODE,
+  ENGINE_RECAP_CODE,
+  type TranscriptNoticeCode,
+} from '../api/session-types.ts'
 
 /** The transcript half of a conversation: what a frame can change. */
 export interface TranscriptState {
@@ -90,13 +97,21 @@ export interface SessionNotice {
 const NOTICE_LIMIT = 50
 
 /**
- * The code the host puts on the one notice that belongs in the transcript: the engine's idle recap.
+ * The notices drawn where the conversation is rather than in the strip above the field.
  *
- * The code is the whole routing rule. Every other notice is about the machinery and stays in the
- * strip above the composer; this one is about the conversation, so it is drawn where the
- * conversation is.
+ * The codes and their union live in `api/session-types.ts`; this table only says which of them
+ * become rows here. The guard is the fold's gate, so a notice without one of these codes stays out
+ * of the transcript.
  */
-const ENGINE_RECAP_CODE = 'engine_recap'
+const TRANSCRIPT_NOTICE_CODES: Readonly<Record<TranscriptNoticeCode, true>> = {
+  [ENGINE_RECAP_CODE]: true,
+  [ENGINE_COMPACTION_REPORT_CODE]: true,
+}
+
+/** Whether one notice's code makes it a row of the conversation (a type guard for the row's code). */
+function isTranscriptNoticeCode(code: string | undefined): code is TranscriptNoticeCode {
+  return typeof code === 'string' && Object.hasOwn(TRANSCRIPT_NOTICE_CODES, code)
+}
 
 let noticeSeq = 0
 
@@ -536,17 +551,18 @@ export function foldTranscript(
       messages[index] = row
       return { ...state, messages }
     }
-    // The idle recap, and only it: the engine hands its owner one recap per idle stretch, and it
-    // belongs in the transcript rather than in the strip above the composer, because it describes
-    // the conversation instead of the machinery. A repeated id (the frame replayed after a read)
-    // replaces the row it made rather than stacking a second one.
+    // The notices about the conversation, and only those: the idle recap and the report a
+    // compaction prints. A repeated id (the frame replayed after a read) replaces the row it made
+    // rather than stacking a second one.
     case 'notice': {
-      if (event.code !== ENGINE_RECAP_CODE) return state
+      const code = event.code
+      if (!isTranscriptNoticeCode(code)) return state
       const row: ChatMessage = {
         kind: 'notice',
-        id: `${ENGINE_RECAP_CODE}-${event.seq ?? state.messages.length}`,
+        id: `${code}-${event.seq ?? state.messages.length}`,
         at: Date.now(),
         text: event.message,
+        code,
       }
       return { ...state, messages: [...state.messages, row] }
     }

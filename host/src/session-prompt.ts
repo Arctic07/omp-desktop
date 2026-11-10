@@ -15,7 +15,7 @@ import { logError } from './log.ts'
 import { ERROR_CODES, HostError, invalidInput } from './protocol/errors.ts'
 import { text } from './protocol/fields.ts'
 import { noteLoopPrompt } from './loop-mode.ts'
-import { clampCommandOutput, runSlashCommand } from './slash.ts'
+import { clampCommandOutput, commandReportCode, runSlashCommand } from './slash.ts'
 import type { SlashCommandOptions } from './slash.ts'
 import { callOffRelease } from './session-stop.ts'
 import { emitSessionState } from './session-view.ts'
@@ -44,6 +44,8 @@ export interface SessionPromptPort {
 interface CommandOutput {
   readonly parts: string[]
   flushed: boolean
+  /** The code this command's report travels under, or `undefined` for the notice channel. */
+  readonly code: string | undefined
 }
 
 /** Streaming behaviours a prompt may declare while a turn is already running. */
@@ -138,7 +140,7 @@ export async function sendPrompt(
   // local command prints is held until the run below has answered, so the frame that releases its
   // turn cannot clear the line it just wrote; a command that starts a turn flushes first, because
   // its line belongs to the moment before the work, not after it.
-  const commandOutput: CommandOutput = { parts: [], flushed: false }
+  const commandOutput: CommandOutput = { parts: [], flushed: false, code: commandReportCode(message) }
   const command = slashCommandOptions(port, live, behavior, commandOutput)
   const run = async (): Promise<void> => {
     try {
@@ -183,12 +185,16 @@ export async function sendPrompt(
 }
 
 /**
- * Publishes what a `/` command printed, as one line on the engine's own notice channel.
+ * Publishes what a `/` command printed, as one line on the conversation's notice path.
  *
  * Called once the run has answered: a builtin is local work, and the acknowledgement that ends
  * its turn is exactly what clears the session's previous notice in the frontend. The parts arrive
  * as the engine wrote them - often a small report over several lines - so they are joined into one
  * line rather than overwriting each other on the way out.
+ *
+ * A report that carries a code travels on this conversation's own pipe instead of the engine's
+ * notice channel: where the code is declared and why is `slash.ts::COMPACTION_REPORT_CODE`, and
+ * `src/src/state/transcript.ts` is what routes it to a transcript row.
  *
  * Output that arrives afterwards is published by {@link publishCommandOutput} as it comes:
  * `/compact`, `/handoff` and a no-argument `/rename` hand their work to `runCommandInBackground`
@@ -196,15 +202,19 @@ export async function sendPrompt(
  */
 function flushCommandOutput(live: LiveSession, output: CommandOutput): void {
   output.flushed = true
-  publishCommandOutput(live, output.parts)
+  publishCommandOutput(live, output.parts, output.code)
   output.parts.length = 0
 }
 
 /** One notice per batch of parts, bounded and joined. */
-function publishCommandOutput(live: LiveSession, parts: readonly string[]): void {
+function publishCommandOutput(live: LiveSession, parts: readonly string[], code?: string): void {
   const text = clampCommandOutput(parts.filter(part => part.trim().length > 0).join('\n'))
   if (text.length === 0) return
   try {
+    if (code !== undefined) {
+      live.events.emit({ type: 'notice', level: 'info', code, message: text })
+      return
+    }
     live.agent.emitNotice('info', text, 'slash-command')
   } catch (error) {
     // The report is a side effect of a command that has already run, and this is called from the
@@ -236,7 +246,7 @@ function slashCommandOptions(
     // as it arrives.
     output: text => {
       if (output.flushed) {
-        publishCommandOutput(live, [text])
+        publishCommandOutput(live, [text], output.code)
         return
       }
       output.parts.push(text)
