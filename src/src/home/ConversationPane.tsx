@@ -14,6 +14,7 @@ import type {
   SessionRetry,
   SubagentRow,
 } from "@/api/session-types";
+import { ENGINE_COMPACTION_REPORT_CODE } from "@/api/session-types";
 import { useCopy } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { AssistantRow } from "@/home/AssistantRow";
@@ -23,7 +24,7 @@ import { CopyButton } from "@/home/CopyButton";
 import { TurnEndingNote } from "@/home/TurnEndingNote";
 import { formatClock, summarizeToolArgs } from "@/home/conversation-format";
 import { isModelTag, messageProse, splitSystemNotices } from "@/home/system-notice";
-import { RecapRow } from "@/components/agents/recap-row";
+import { NoticeRow } from "@/components/agents/notice-row";
 import { ReminderRow } from "@/components/agents/reminder-row";
 import { ConversationToolRow, type ToolMessage } from "@/home/ConversationToolRow";
 import {
@@ -37,7 +38,10 @@ import { RewindDialog } from "@/home/RewindDialog";
 import { buildRows, toolRunOutcomes, type TranscriptRow, type TurnTail } from "@/home/conversation-rows";
 import { messageSegments } from "@/state/composer-draft";
 import { continueFromEntry } from "@/state/session-actions";
-import { canRewindMessage, type TurnEnding } from "@/state/transcript";
+import {
+  canRewindMessage,
+  type TurnEnding,
+} from "@/state/transcript";
 import { COPY } from "@/home/homeCopy";
 
 type UserMessage = Extract<ChatMessage, { kind: "user" }>;
@@ -77,6 +81,11 @@ export interface ConversationPaneProps {
   backgroundJobs?: readonly BackgroundJob[];
   /** The turn in flight, if any: it is what makes the last row read as streaming. */
   streaming: boolean;
+  /**
+   * The engine is rewriting this conversation's context (`runtime.isCompacting`); the feed's own
+   * `compacting` says what it draws.
+   */
+  compacting?: boolean;
   /**
    * The retry the engine is waiting out, when it is waiting on one.
    *
@@ -157,6 +166,7 @@ export function ConversationPane({
   subagents,
   backgroundJobs = NO_JOBS,
   streaming,
+  compacting = false,
   retry,
   lastTurn,
   tipEntryId,
@@ -287,6 +297,7 @@ export function ConversationPane({
           sessionId={sessionId}
           rows={rows}
           streaming={streaming}
+          compacting={compacting}
           retry={retry}
           runningLabel={runningLabel}
           className={className}
@@ -364,6 +375,8 @@ function RowView({
   onRewind: ((target: RewindTarget) => void) | undefined
   onOpenSubagent: ((childId: string, label: string) => void) | undefined
 }) {
+  // The speaker line a compaction report carries needs the same wording an answer's header uses.
+  const copy = useCopy(COPY)
   if (row.kind === "reminders") {
     return (
       <ReminderRow
@@ -394,9 +407,26 @@ function RowView({
       />
     );
   }
-  // The idle recap: one line where the conversation is, the same row the engine's own terminal draws.
+  // The engine's own notices that belong here: the idle recap, and a compaction's report. The
+  // report is the agent's closing line on a pass the reader asked for, so it is drawn as an answer's
+  // row - the speaker and the clock above the words - rather than as a bare line of text.
   if (row.message.kind === "notice") {
-    return <RecapRow message={row.message} className="mt-1" />;
+    if (row.message.code !== ENGINE_COMPACTION_REPORT_CODE) {
+      return <NoticeRow message={row.message} className="mt-1" />;
+    }
+    return (
+      <Message from="assistant" animateIn={animateIn}>
+        <MessageContent className="gap-3">
+          {speakers ? (
+            <MessageHeader>
+              <span>{copy.agentLabel}</span>
+              <span>{formatClock(row.message.at)}</span>
+            </MessageHeader>
+          ) : null}
+          <NoticeRow message={row.message} />
+        </MessageContent>
+      </Message>
+    );
   }
   if (row.message.kind === "user") {
     return (

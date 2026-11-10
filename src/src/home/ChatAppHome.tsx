@@ -499,6 +499,7 @@ function ConversationBody({ phase }: { phase: ConversationPhase }) {
             subagents={record.subagents}
             backgroundJobs={record.runtime?.backgroundJobs}
             streaming={isStreaming(record)}
+            compacting={record.runtime?.isCompacting === true}
             retry={record.runtime?.retry ?? null}
             lastTurn={record.lastTurn}
             tipEntryId={record.runtime?.tipEntryId ?? null}

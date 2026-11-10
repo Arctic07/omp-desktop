@@ -95,8 +95,9 @@ function asMarkdown(messages: readonly ChatMessage[]): string {
         return ""
       }
       if (message.kind === "notice") {
-        // The idle recap is a note about the conversation, not part of it: a copy of what was said
-        // carries the words that were said.
+        // An engine notice kept in the transcript (the idle recap, a compaction's report) is a note
+        // about the conversation, not part of it: a copy of what was said carries the words that
+        // were said.
         return ""
       }
       return `## Tool · ${message.name}\n\n\`\`\`\n${message.resultText || message.argsText}\n\`\`\``

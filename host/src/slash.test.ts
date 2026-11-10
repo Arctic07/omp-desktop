@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { runSlashCommand } from './slash.ts'
+import { commandReportCode, runSlashCommand } from './slash.ts'
 import type { SlashCommandOptions } from './slash.ts'
 
 /**
@@ -56,4 +56,16 @@ test('a background command republishes the session state when its work finishes'
   await work
   await Promise.resolve()
   assert.equal(published, 1)
+})
+
+test('only the compaction command reports into the transcript', () => {
+  // The code is what routes a `/compact` report to the conversation instead of the notice strip
+  // (`src/src/state/transcript.ts`); every other command keeps the strip.
+  assert.equal(commandReportCode('/compact'), 'engine_compaction_report')
+  assert.equal(commandReportCode('/compact keep the plan so far'), 'engine_compaction_report')
+  assert.equal(commandReportCode('  /compact  '), 'engine_compaction_report')
+  // A command whose address merely starts the same way is not the compaction.
+  assert.equal(commandReportCode('/compactfoo'), undefined)
+  assert.equal(commandReportCode('/rename New name'), undefined)
+  assert.equal(commandReportCode('compact now'), undefined)
 })

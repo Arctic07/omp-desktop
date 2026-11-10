@@ -2,9 +2,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type ClipboardEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Message, MessageContent, MessageGroup } from "@/components/agents/message";
+import { MessageGroup } from "@/components/agents/message";
 import { Button } from "@/components/motion/button";
-import { AgentProgress } from "@/components/agents/loading-states/agent-progress";
 import {
   MessageScroller,
   RAIL_TICK_SIZE_PX,
@@ -19,6 +18,7 @@ import { textWithFileMentions } from "@/lib/file-mention";
 import { selectionWords } from "@/lib/selection-words";
 import { cn } from "@/lib/utils";
 import { COPY } from "@/home/homeCopy";
+import { ConversationFootRow } from "@/home/ConversationFootRow";
 import {
   createRailCache,
   railItems as buildRailItems,
@@ -29,7 +29,7 @@ import { RUNNING_ROW_ID, isUserRow, type TranscriptRow } from "@/home/conversati
 import { standRowsOnBoxes } from "@/home/feed-placement";
 import { estimateRowHeight } from "@/home/row-height";
 import { landReader } from "@/home/feed-landing";
-import { startOfTurn, turnElapsedSeconds } from "@/home/turn-elapsed";
+import { startOfTurn } from "@/home/turn-elapsed";
 import { readerPlace, setReaderPlace } from "@/state/reader-place";
 import { sessionStore, type SessionStoreState } from "@/state/session-store";
 import { useStoreSelector } from "@/state/store";
@@ -86,6 +86,13 @@ export interface ConversationFeedProps {
   /** The turn in flight, if any: it is a row of its own at the foot. */
   streaming: boolean
   /**
+   * The engine is rewriting the context (a compaction or a handoff), with no turn over it.
+   *
+   * A model call the reader is waiting on — `/compact` spends one this way — which the foot row
+   * states; beside a live turn, that turn's own row already says what the wait is.
+   */
+  compacting?: boolean
+  /**
    * The retry the engine is waiting out, when it is waiting on one.
    *
    * It is the turn's own state rather than a notice: the waiting line says what is happening while
@@ -121,6 +128,7 @@ export function ConversationFeed({
   sessionId,
   rows,
   streaming,
+  compacting = false,
   retry = null,
   runningLabel,
   renderRow,
@@ -170,7 +178,18 @@ export function ConversationFeed({
   // the clock below is keyed on *that*, so a streamed delta cannot restart the counter.
   const startedAt = useMemo(() => startOfTurn(rows, hostTurnStart), [hostTurnStart, rows]);
 
-  const rowCount = rows.length + (streaming ? 1 : 0);
+  // The foot row's two cases live in the component: a turn in flight, or an engine-side rewrite.
+  const footLive = streaming || compacting;
+  const rowCount = rows.length + (footLive ? 1 : 0);
+  const footRow = (
+    <ConversationFootRow
+      streaming={streaming}
+      compacting={compacting}
+      retry={retry}
+      startedAt={startedAt}
+      runningLabel={runningLabel}
+    />
+  );
   const virtualized = rows.length > FEED_VIRTUALIZATION_THRESHOLD;
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   /**
@@ -206,9 +225,9 @@ export function ConversationFeed({
       if (isUserRow(row)) turn = row.id;
       byRow.set(row.id, turn);
     }
-    if (streaming) byRow.set(RUNNING_ROW_ID, turn);
+    if (footLive) byRow.set(RUNNING_ROW_ID, turn);
     return byRow;
-  }, [rows, streaming]);
+  }, [footLive, rows]);
 
   // oxlint-disable-next-line react/incompatible-library -- the row model is `@tanstack/react-virtual`,
   // the same library and version the desktop front end's own feed uses; the compiler skips this
@@ -856,11 +875,7 @@ export function ConversationFeed({
                 className="absolute inset-x-0"
                 style={{ top: item.start - scrollMargin }}
               >
-                {row === undefined ? (
-                  <RunningRow retry={retry} startedAt={startedAt} label={runningLabel} />
-                ) : (
-                  renderRow(row, item.index)
-                )}
+                {row === undefined ? footRow : renderRow(row, item.index)}
               </div>
             );
           })}
@@ -868,9 +883,7 @@ export function ConversationFeed({
       ) : (
         <MessageGroup spacing="default" className="mt-auto">
           {rows.map((row, index) => renderRow(row, index))}
-          {streaming ? (
-            <RunningRow retry={retry} startedAt={startedAt} label={runningLabel} />
-          ) : null}
+          {footLive ? footRow : null}
         </MessageGroup>
       )}
       </MessageScroller>
@@ -911,56 +924,5 @@ export function ConversationFeed({
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-/**
- * The turn in flight, at the foot of the transcript.
- *
- * The agent is on screen from the moment the prompt is sent, before the engine has said anything,
- * and stays on screen while it works — the running component is the answer to "is it doing
- * anything?". No avatar: the rows draw none, and the running line starts where the answers do.
- *
- * A turn the engine is retrying says so here, in place of the plain verb: the retry is a wait the
- * reader would otherwise read as "working" for as long as the backoff lasts, and it is the line
- * that tells them the request failed and is being tried again — with the attempt it is on. The
- * engine's own words for the failure are the row's title, so the reason is one hover away without
- * a second line on screen.
- *
- * The clock beside the verb counts the *turn*, not the visit: it is handed over as the counter's own
- * zero point (`startedAt`, read from the host's stamp for this turn), so leaving the conversation and
- * coming back — which draws this row again from nothing — shows the same reading rather than a fresh
- * stopwatch. It is read once per turn, because a value that moved on every frame would restart the
- * counter and freeze the reading at the age of the frame it was read on. A turn nothing stamped is
- * counted from the moment this row was drawn, which is what the row has always done.
- */
-function RunningRow({
-  retry,
-  startedAt,
-  label: workingLabel,
-}: {
-  retry: SessionRetry | null;
-  startedAt: number | null;
-  /** The verb for this surface: "working" in a conversation, "running" in a child's transcript. */
-  label?: string;
-}) {
-  const copy = useCopy(COPY);
-  const initialSeconds = useMemo(
-    // oxlint-disable-next-line react/purity -- the clock is the reading here, taken once per turn.
-    () => turnElapsedSeconds(startedAt, Date.now()) ?? 0,
-    [startedAt],
-  );
-  const label =
-    retry === null
-      ? (workingLabel ?? copy.workingLabel)
-      : copy.retryingLabel(retry.attempt, Math.max(retry.maxAttempts, retry.attempt));
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <span title={retry?.errorMessage ?? undefined} className="inline-flex">
-          <AgentProgress label={label} initialSeconds={initialSeconds} />
-        </span>
-      </MessageContent>
-    </Message>
   );
 }

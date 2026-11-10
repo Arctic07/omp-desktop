@@ -15,6 +15,7 @@ use super::{clamp_text, sanitize_message, BACKGROUND_DELTA_FLUSH_MS, DELTA_FLUSH
 use crate::services::presence;
 use crate::services::session_title::clean_title_text;
 
+mod compaction;
 mod deltas;
 mod frames;
 
@@ -414,50 +415,14 @@ impl EventState {
             }
             // The end of a compaction settles the line its start put up, and the refresh asked
             // for here is its other half: the occupancy the reader watches drops when the
-            // compaction lands, which - mid-turn - is long before the turn holding it ends.
-            // What ended it decides the words, read in the engine's own precedence: a
-            // cancellation is one even when the abort also carried a sentence, a failure keeps
-            // the engine's own reason (the only place it exists), and `skipped` is the field
-            // that says whether the context was rewritten at all - the shake method reclaims
-            // tokens without producing a `CompactionResult`, so `skipped: false` means it did.
+            // compaction lands, which - mid-turn - is long before the turn holding it ends. The
+            // notice's words and whether there is one at all are `compaction::compaction_end_notice`'s
+            // rule.
             "auto_compaction_end" | "manual_compaction_end" => {
                 self.flush(app, session);
-                let aborted = event.get("aborted").and_then(Value::as_bool) == Some(true);
-                let skipped = event.get("skipped").and_then(Value::as_bool) == Some(true);
-                let failure = event
-                    .get("errorMessage")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .filter(|_| !aborted && !skipped);
-                let compacted = event.get("result").is_some_and(|result| !result.is_null())
-                    || event.get("skipped").and_then(Value::as_bool) == Some(false);
-                let notice = match failure {
-                    Some(reason) => json!({
-                        "type": "notice",
-                        "level": "warning",
-                        "message": sanitize_message(reason),
-                    }),
-                    None if aborted => json!({
-                        "type": "notice",
-                        "level": "info",
-                        "code": "engine_compaction_stopped",
-                        "message": "The engine stopped compacting the context.",
-                    }),
-                    None if compacted => json!({
-                        "type": "notice",
-                        "level": "info",
-                        "code": "engine_compacted",
-                        "message": "The engine compacted the context.",
-                    }),
-                    None => json!({
-                        "type": "notice",
-                        "level": "info",
-                        "code": "engine_compaction_skipped",
-                        "message": "The engine left the context as it was.",
-                    }),
-                };
-                session.emit(app, notice);
+                if let Some(notice) = compaction::compaction_end_notice(event_type, event) {
+                    session.emit(app, notice);
+                }
                 true
             }
             "model_changed" | "thinking_level_changed" | "auto_retry_end" => true,
