@@ -63,6 +63,7 @@ export function PluginConsentDialog({
         ariaLabel={copy.consentTitle(entry.name)}
         closeButtonLabel={copy.closeAction}
         dismissible={!busy}
+        showCloseButton={!busy}
         className="max-w-[34rem]"
       >
         <div className="flex max-h-[80vh] flex-col gap-4 overflow-y-auto p-6 pr-14 text-xs leading-[18px] text-muted-foreground">

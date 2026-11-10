@@ -65,7 +65,6 @@ import type {
   PluginsView,
 } from '@/api/plugins-types'
 import { BUILTIN_MARKETPLACE_SOURCE, isBuiltinMarketplace } from '@/lib/plugin-market'
-import { mcpResource, readMcp } from '@/state/mcp-store'
 import { createKeyedResource, createResource, createWorkspaceResource } from '@/state/resource'
 import { createStore } from '@/state/store'
 import { applyPluginProcessEvent, retainActivatedViews } from '@/state/plugin-process'
@@ -125,6 +124,20 @@ export function readMarketPlugins(workspaceId: number | null, force = false): Pr
 }
 
 /**
+ * Re-read the shell's registry after a write that names the machine-wide scope.
+ *
+ * The shell reads the rail's active workspace, not the picker, and the keyed resource refuses a
+ * write whose key differs. A user-scope installation is active in every workspace, so the shell's
+ * own key must be asked again; a project-scope write already reaches the shell when the two keys
+ * agree, and must not touch it otherwise.
+ */
+function refreshShellAfterUserWrite(workspaceId: number | null): void {
+  if (workspaceId !== null) return
+  const active = workspaceStore.get().activeId
+  if (active !== null) void readPlugins(active, true)
+}
+
+/**
  * One list write: adopt the host's own answer, or hand back the refusal.
  *
  * The answer belongs to the workspace the write named. The keyed resource drops an answer that
@@ -138,18 +151,13 @@ async function writePlugins(
   try {
     const view = await run()
     // A write belongs to every surface currently showing that key; the keyed resource drops it for
-    // a surface that has moved elsewhere. The shell is included so an active-workspace write is
-    // visible there without a re-read.
-    const settingsAdopted = settingsPluginsResource.adopt(view, workspaceId)
-    const marketAdopted = marketPluginsResource.adopt(view, workspaceId)
-    const shellAdopted = pluginsResource.adopt(view, workspaceId)
-    if (settingsAdopted || marketAdopted || shellAdopted) {
-      // A plugin install, enable/disable or uninstall changes the MCP servers the engine discovers
-      // from that plugin's directory. Drop the old view first so the reader cannot see the removed
-      // plugin's rows while the fresh read is in flight, then read again.
-      mcpResource.reset()
-      void readMcp(workspaceId, true)
-    }
+    // a surface that has moved elsewhere. This write owns no MCP handle: the MCP page re-reads its
+    // own workspace when it is shown (`McpSection`), so a plugin change cannot retarget a page
+    // that was looking at another scope.
+    settingsPluginsResource.adopt(view, workspaceId)
+    marketPluginsResource.adopt(view, workspaceId)
+    pluginsResource.adopt(view, workspaceId)
+    refreshShellAfterUserWrite(workspaceId)
     return null
   } catch (error) {
     return toApiError(error)
@@ -244,6 +252,7 @@ export async function writePluginSwitch(
     settingsPluginsResource.adopt(list, workspaceId)
     marketPluginsResource.adopt(list, workspaceId)
     pluginsResource.adopt(list, workspaceId)
+    refreshShellAfterUserWrite(workspaceId)
     return { switched: view.switched, error: null }
   } catch (error) {
     return { switched: null, error: toApiError(error) }

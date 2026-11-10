@@ -35,7 +35,7 @@ export async function writeSkill(
   enabled: boolean,
 ): Promise<ApiError | null> {
   try {
-    skillsResource.adopt(await setEngineSkill(workspaceId, target, id, enabled))
+    skillsResource.adopt(await setEngineSkill(workspaceId, target, id, enabled), workspaceId)
     return null
   } catch (error) {
     return toApiError(error)

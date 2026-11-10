@@ -119,7 +119,11 @@ const PIPELINE_SCRIPTS = ['legacy-pi-virtual-module.ts', 'json-parse-plugin.ts',
  * fails an installed-package build. The value is small and stable; re-check it against the script
  * on every SDK bump, exactly like `BUNDLED_PACKAGES` above.
  */
-const COMPILED_EXTERNAL_DEPENDENCIES: readonly string[] = ['fastembed', 'onnxruntime-node']
+const COMPILED_EXTERNAL_DEPENDENCIES: readonly string[] = [
+  '@huggingface/transformers',
+  'fastembed',
+  'onnxruntime-node',
+]
 
 /** The build manifest the launcher verifies (contract §1.2). */
 interface HostManifest {
