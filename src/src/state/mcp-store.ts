@@ -34,7 +34,7 @@ export async function writeMcpEnabled(
   enabled: boolean,
 ): Promise<ApiError | null> {
   try {
-    mcpResource.adopt(await setEngineMcpEnabled(workspaceId, name, enabled))
+    mcpResource.adopt(await setEngineMcpEnabled(workspaceId, name, enabled), workspaceId)
     return null
   } catch (error) {
     return toApiError(error)
@@ -49,7 +49,7 @@ export async function writeMcpDefinition(
   definition: EngineMcpDefinitionInput,
 ): Promise<ApiError | null> {
   try {
-    mcpResource.adopt(await upsertEngineMcp(workspaceId, name, scope, definition))
+    mcpResource.adopt(await upsertEngineMcp(workspaceId, name, scope, definition), workspaceId)
     return null
   } catch (error) {
     return toApiError(error)
@@ -63,7 +63,7 @@ export async function removeMcpDefinition(
   scope: EngineMcpScope,
 ): Promise<ApiError | null> {
   try {
-    mcpResource.adopt(await removeEngineMcp(workspaceId, name, scope))
+    mcpResource.adopt(await removeEngineMcp(workspaceId, name, scope), workspaceId)
     return null
   } catch (error) {
     return toApiError(error)

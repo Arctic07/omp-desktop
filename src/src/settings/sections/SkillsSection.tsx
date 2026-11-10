@@ -229,8 +229,9 @@ export default function SkillsSection({
     void readSkills(workspaceId, true)
   }, [workspaceId])
 
-  // The rail's active workspace is the default pick: when it moves, the page follows it through
-  // the same held rows as an explicit pick.
+  // The picker is page-local: it starts on the machine-wide scope, and choosing another workspace
+  // never moves the conversation column. The rows on screen keep the scope they were drawn in
+  // until the new read answers.
   useEffect(() => {
     if (target !== listTarget) setSwitching(true)
   }, [target, listTarget])

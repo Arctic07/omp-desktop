@@ -166,7 +166,10 @@ export function PluginMarketPage({
     await readMarketplaces()
     const error = await ensureBuiltinMarketplace()
     setSeedError(error)
-    if (error === null) await readCatalogue(true)
+    // The catalogue read is the engine's cached answer, not a fetch: even when the built-in
+    // source could not be seeded (offline, or the registry refused), the sources this process
+    // already has must be drawn. Skipping it made an unread catalogue read as an empty one.
+    await readCatalogue(true)
     setSeeding(false)
   }, [])
 

@@ -136,9 +136,10 @@ export async function dispatchTan(
         let clone: AgentSession | undefined
         // The follower subscribes and opens its scope in the constructor, before a session exists;
         // only `bind` hands that subscription to the clone's disposer. Without this flag a create
-        // that throws (or a failure before `bind` runs) would leave the scope and its listener on
-        // the shared manager for the life of the host - the engine's own spawn path disposes on the
-        // same branch (`task/executor.ts`).
+        // that throws (or a failure before `bind` runs) would leave the listener on the shared
+        // manager for the life of the host - the engine's own spawn path disposes on the same
+        // branch (`task/executor.ts`). The scope itself belongs to the engine, which never forgets
+        // an opened one (`openToolScope`); `dispose` reclaims the subscription, not the entry.
         let mcpBound = false
         const mcpFollower =
           mcpManager === undefined ? undefined : followMCPTools(mcpManager, { scope: cloneManager.getSessionId() })

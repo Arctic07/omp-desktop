@@ -15,9 +15,11 @@
  * per-file lock and the validation, so re-implementing any of them here would be a second source of
  * truth about a file another process also writes.
  *
- * Live state is read, never produced: this module never constructs a manager and never connects a
- * server, so a host that has not activated a session reports `live:false` and `unknown` instead of
- * inventing a connection it would then have to tear down.
+ * Live state is read, never constructed: this module never creates a manager. `mcp_set_enabled`
+ * applies a switch to the managers a live session already owns - every one for a user- or
+ * native-level definition, the ones in its directory for a project-level one - so a host with no
+ * active session reports `live:false` and `unknown` instead of inventing a connection it would
+ * then have to tear down.
  */
 
 import * as fs from 'node:fs'
@@ -155,6 +157,27 @@ function liveManagers(sdk: SdkBundle, sessions: SessionRegistry): MCPManager[] {
   const managers: MCPManager[] = []
   for (const manager of [sdk.mcpManager(), ...sessions.mcpManagers()]) {
     if (manager !== undefined && !managers.includes(manager)) managers.push(manager)
+  }
+  return managers
+}
+
+/**
+ * The managers one definition's level may be applied to.
+ *
+ * A user- or native-level definition is active in every conversation, so it reaches every live
+ * manager. A project-level definition exists in one workspace; connecting it elsewhere would give
+ * that conversation a server - and its credentials - the directory never declared.
+ */
+function sourceManagers(
+  sdk: SdkBundle,
+  sessions: SessionRegistry,
+  cwd: string,
+  level: string,
+): MCPManager[] {
+  if (level !== 'project') return liveManagers(sdk, sessions)
+  const managers: MCPManager[] = []
+  for (const entry of sessions.mcpManagersWithCwd()) {
+    if (samePath(entry.cwd, cwd) && !managers.includes(entry.manager)) managers.push(entry.manager)
   }
   return managers
 }
@@ -379,7 +402,7 @@ export async function setMcpEnabled(
     enabled,
   })
   if (enabled) await connectEnabled(sdk, sessions, cwd, name)
-  else await disconnectEvery(sdk, sessions, name)
+  else await disconnectEvery(sdk, sessions, cwd, name, server._source.level)
   return await mcpView(paths, sdk, sessions, cwd)
 }
 
@@ -545,7 +568,7 @@ function mergedDefinition(existing: unknown, input: DefinitionInput): EngineMcpC
 }
 
 /**
- * Bring one discovered server up in every live manager.
+ * Bring one discovered server up in the managers its level reaches.
  *
  * Unlike `connectWritten`, this is not limited to the two config files this application writes: a
  * plugin MCP is discovered from the plugin's own `.mcp.json` and the manager can connect the
@@ -558,17 +581,18 @@ async function connectEnabled(
   cwd: string,
   name: string,
 ): Promise<void> {
-  const managers = liveManagers(sdk, sessions)
-  if (managers.length === 0) return
   sdk.resetCapabilities()
   const discovered = await sdk.mcpServers(cwd)
   const server = discovered.items.find(entry => entry.name === name)
   if (server === undefined || server._source === undefined) return
-  // `MCPServer` names the transport `transport`; the manager's config names it `type` and defaults
-  // to stdio. Passing the discovery row through unchanged turns an http/sse server into a stdio
-  // one, which the manager rejects for a missing command.
+  const managers = sourceManagers(sdk, sessions, cwd, server._source.level)
+  if (managers.length === 0) return
+  // `MCPServer` names the transport `transport`; the manager's config calls it `type`. The
+  // fallback is the engine's own normalization (`transportOf`), not stdio: a row that only carries
+  // `url` is an http server, and treating it as stdio makes the manager reject it for a missing
+  // command.
   const { _source: source, transport, ...fields } = server
-  const config = { ...fields, type: transport ?? 'stdio' } as unknown as EngineMcpConfig
+  const config = { ...fields, type: transport ?? transportOf(server) } as unknown as EngineMcpConfig
   await Promise.all(
     managers.map(async manager => {
       try {
@@ -581,9 +605,15 @@ async function connectEnabled(
   )
 }
 
-/** Drop one server from every live manager, so a switched-off row stops reporting a connection. */
-async function disconnectEvery(sdk: SdkBundle, sessions: SessionRegistry, name: string): Promise<void> {
-  const managers = liveManagers(sdk, sessions)
+/** Drop one server from the managers its level reaches, so a switched-off row stops reporting a connection. */
+async function disconnectEvery(
+  sdk: SdkBundle,
+  sessions: SessionRegistry,
+  cwd: string,
+  name: string,
+  level: string,
+): Promise<void> {
+  const managers = sourceManagers(sdk, sessions, cwd, level)
   await Promise.all(
     managers.map(async manager => {
       try {
@@ -597,7 +627,7 @@ async function disconnectEvery(sdk: SdkBundle, sessions: SessionRegistry, name: 
 }
 
 /**
- * Connects definitions a write has just stored, on the live manager.
+ * Connects definitions a write has just stored, on the managers its scope reaches.
  *
  * A stored definition is not a connection: the engine builds its manager when a session starts and
  * keeps it for the process, so a server added afterwards stays unknown until a restart - the
@@ -615,9 +645,10 @@ export async function connectWritten(
   sdk: SdkBundle,
   sessions: SessionRegistry,
   cwd: string,
+  scope: McpScope,
   names: readonly string[],
 ): Promise<void> {
-  const managers = liveManagers(sdk, sessions)
+  const managers = sourceManagers(sdk, sessions, cwd, scope)
   if (managers.length === 0 || names.length === 0) return
   // The definitions were written a moment ago, so the capability cache has to be dropped first.
   sdk.resetCapabilities()
@@ -636,8 +667,10 @@ export async function connectWritten(
   }
   if (Object.keys(configs).length === 0) return
   try {
-    // Every live manager, because each conversation holds its own tool set: a server up in one and
-    // not the other is exactly what the reader notices when they switch conversations.
+    // Every manager this definition's scope reaches: all of them for a user-level write, the ones
+    // in this directory for a project-level one. A server up in one conversation and not another
+    // is exactly what the reader notices when they switch conversations, but a project-level
+    // server must not appear in a conversation whose directory never declared it.
     await Promise.all(managers.map(manager => manager.connectServers(configs, sources)))
     logLine(`mcp: connected ${Object.keys(configs).join(', ')}`)
   } catch (error) {
@@ -665,7 +698,7 @@ export async function upsertMcp(
   await sdk.updateMCPServer(filePath, input.name, mergedDefinition(existing, input))
   // A definition written into a running process is not a connection yet: bring it up now rather
   // than at the next start.
-  await connectWritten(sdk, sessions, cwd, [input.name])
+  await connectWritten(sdk, sessions, cwd, input.scope, [input.name])
   return await mcpView(paths, sdk, sessions, cwd)
 }
 

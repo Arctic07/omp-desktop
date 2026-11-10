@@ -676,7 +676,7 @@ export async function applyOmpImport(
     // A stored definition does not connect by itself: the engine's manager was built when a
     // conversation started and keeps its own server list, so without this the imported server is
     // only there after a restart. Same path the definition editor's save takes (`mcp.ts`).
-    await connectWritten(sdk, sessions, cwd, serversImported)
+    await connectWritten(sdk, sessions, cwd, 'user', serversImported)
   }
 
   if (skills) {

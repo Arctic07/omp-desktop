@@ -414,7 +414,7 @@ export async function applyMcpSources(
 
   // A stored definition does not connect by itself: bring the imported ones up in every live
   // conversation, exactly as the definition editor's save does.
-  await connectWritten(sdk, sessions, paths.defaultWorkspace, imported)
+  await connectWritten(sdk, sessions, paths.defaultWorkspace, 'user', imported)
   sdk.resetCapabilities()
   if (imported.length > 0) logLine(`mcp import: ${imported.join(', ')}`)
 

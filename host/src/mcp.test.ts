@@ -81,6 +81,7 @@ function fixture(managers: readonly Record<string, unknown>[], global: number): 
   const sessions = {
     mcpManager: () => managers[0],
     mcpManagers: () => managers,
+    mcpManagersWithCwd: () => managers.map(manager => ({ cwd: root, manager })),
   } as unknown as SessionRegistry
   const paths = { agentDir, dataRoot: root, defaultWorkspace: root } as unknown as HostPaths
   return { paths, sdk, sessions, root }
@@ -192,6 +193,11 @@ test('a plugin MCP switch hands the manager the discovered transport as its conf
           transport: 'stdio',
           _source: source,
         },
+        {
+          name: 'plugin:url',
+          url: 'https://mcp.example.test/url-only',
+          _source: source,
+        },
       ],
       warnings: [],
     }),
@@ -201,6 +207,7 @@ test('a plugin MCP switch hands the manager the discovered transport as its conf
   const sessions = {
     mcpManager: () => live,
     mcpManagers: () => [live],
+    mcpManagersWithCwd: () => [{ cwd: root, manager: live }],
   } as unknown as SessionRegistry
   const paths = {
     agentDir: path.join(root, 'agent'),
@@ -208,20 +215,113 @@ test('a plugin MCP switch hands the manager the discovered transport as its conf
     defaultWorkspace: root,
   } as unknown as HostPaths
   try {
-    for (const name of ['plugin:http', 'plugin:sse', 'plugin:stdio']) {
+    for (const name of ['plugin:http', 'plugin:sse', 'plugin:stdio', 'plugin:url']) {
       await setMcpEnabled(paths, sdk, sessions, { name, enabled: true, cwd: root })
     }
     assert.equal(connected['plugin:http']?.type, 'http')
     assert.equal(connected['plugin:sse']?.type, 'sse')
     assert.equal(connected['plugin:stdio']?.type, 'stdio')
-    for (const name of ['plugin:http', 'plugin:sse', 'plugin:stdio']) {
+    assert.equal(connected['plugin:url']?.type, 'http')
+    for (const name of ['plugin:http', 'plugin:sse', 'plugin:stdio', 'plugin:url']) {
       await setMcpEnabled(paths, sdk, sessions, { name, enabled: false, cwd: root })
     }
     assert.deepEqual(calls.filter((call) => call.startsWith('disconnect:')), [
       'disconnect:plugin:http',
       'disconnect:plugin:sse',
       'disconnect:plugin:stdio',
+      'disconnect:plugin:url',
     ])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a project-level switch reaches only the managers of its directory', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omp-mcp-scope-'))
+  const workspaceA = path.join(root, 'workspace-a')
+  const workspaceB = path.join(root, 'workspace-b')
+  fs.mkdirSync(workspaceA)
+  fs.mkdirSync(workspaceB)
+  const resolvedA = fs.realpathSync.native(workspaceA)
+  const resolvedB = fs.realpathSync.native(workspaceB)
+  const calls: Record<'a' | 'b', string[]> = { a: [], b: [] }
+  const scopedManager = (key: 'a' | 'b') => ({
+    ...manager({ status: 'disconnected' }, 'scope:project'),
+    connectServers: async (configs: Record<string, unknown>) => {
+      for (const name of Object.keys(configs)) calls[key].push(`connect:${name}`)
+    },
+    disconnectServer: async (name: string) => {
+      calls[key].push(`disconnect:${name}`)
+    },
+  })
+  const managerA = scopedManager('a')
+  const managerB = scopedManager('b')
+  const sources = {
+    project: {
+      provider: 'mcp-json',
+      providerName: 'MCP config',
+      path: path.join(resolvedA, '.omp', 'mcp.json'),
+      level: 'project',
+    },
+    user: {
+      provider: 'mcp-json',
+      providerName: 'MCP config',
+      path: path.join(root, 'agent', 'mcp.json'),
+      level: 'user',
+    },
+  }
+  const sdk = {
+    resetCapabilities: () => {},
+    readDisabledServers: async () => [],
+    readEnabledServers: async () => [],
+    mcpServers: async () => ({
+      items: [
+        { name: 'scope:project', command: 'node', _source: sources.project },
+        { name: 'scope:user', command: 'node', _source: sources.user },
+      ],
+      warnings: [],
+    }),
+    setMcpServerEnabled: async () => {},
+    mcpManager: () => managerA,
+  } as unknown as SdkBundle
+  const sessions = {
+    mcpManager: () => managerA,
+    mcpManagers: () => [managerA, managerB],
+    mcpManagersWithCwd: () => [
+      { cwd: resolvedA, manager: managerA },
+      { cwd: resolvedB, manager: managerB },
+    ],
+  } as unknown as SessionRegistry
+  const paths = {
+    agentDir: path.join(root, 'agent'),
+    dataRoot: root,
+    defaultWorkspace: resolvedA,
+  } as unknown as HostPaths
+  try {
+    await setMcpEnabled(paths, sdk, sessions, { name: 'scope:project', enabled: true, cwd: resolvedA })
+    assert.deepEqual(calls.a, ['connect:scope:project'])
+    assert.deepEqual(calls.b, [])
+
+    await setMcpEnabled(paths, sdk, sessions, { name: 'scope:user', enabled: true, cwd: resolvedA })
+    assert.deepEqual(calls.a, ['connect:scope:project', 'connect:scope:user'])
+    assert.deepEqual(calls.b, ['connect:scope:user'])
+
+    await setMcpEnabled(paths, sdk, sessions, { name: 'scope:project', enabled: false, cwd: resolvedA })
+    assert.deepEqual(calls.a, [
+      'connect:scope:project',
+      'connect:scope:user',
+      'disconnect:scope:project',
+    ])
+    assert.deepEqual(calls.b, ['connect:scope:user'])
+
+    await setMcpEnabled(paths, sdk, sessions, { name: 'scope:user', enabled: false, cwd: resolvedA })
+    assert.deepEqual(calls.a, [
+      'connect:scope:project',
+      'connect:scope:user',
+      'disconnect:scope:project',
+      'disconnect:scope:user',
+    ])
+    assert.deepEqual(calls.b, ['connect:scope:user', 'disconnect:scope:user'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

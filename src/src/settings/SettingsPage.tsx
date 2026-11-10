@@ -151,6 +151,8 @@ export interface SettingsSectionProps {
   onOpenWorkspace: () => void
   /** Leave settings for the plugin marketplace, carrying the plugin page's current scope. */
   onBrowseMarket?: (scope: WorkspaceScopeTarget) => void
+  /** Whether the section is on screen; a visited section stays mounted while hidden. */
+  active?: boolean
 }
 
 /** The desktop app's own order: usage first, about last. */
@@ -290,14 +292,11 @@ export function SettingsPage({
               const shown = section.id === activeId
               return (
                 <div key={section.id} hidden={!shown} className="flex flex-col gap-7">
-                  {section.id === 'skills' ? (
-                    // The skills list is refreshed whenever the section comes back on screen: a
-                    // skill created in chat (the *New skill* flow) is written by the engine's own
-                    // tools, and a page that only read once would keep showing the list from before.
-                    <SkillsSection onOpenWorkspace={onOpenWorkspace} active={shown} />
-                  ) : (
-                    <Section onOpenWorkspace={onOpenWorkspace} onBrowseMarket={onBrowseMarket} />
-                  )}
+                  <Section
+                    onOpenWorkspace={onOpenWorkspace}
+                    onBrowseMarket={onBrowseMarket}
+                    active={shown}
+                  />
                 </div>
               )
             })}

@@ -285,6 +285,21 @@ export class SessionRegistry {
     return managers
   }
 
+  /**
+   * Every loaded session's MCP manager with the directory that session belongs to.
+   *
+   * A project-level definition exists in one workspace, so bringing one up must reach only the
+   * conversations in that directory. The manager list alone cannot answer that; the record's own
+   * `cwd` can.
+   */
+  mcpManagersWithCwd(): { cwd: string; manager: MCPManager }[] {
+    const entries: { cwd: string; manager: MCPManager }[] = []
+    for (const session of this.#live.values()) {
+      if (session.mcpManager !== undefined) entries.push({ cwd: session.cwd, manager: session.mcpManager })
+    }
+    return entries
+  }
+
   /** Counters `host_health` reports. */
   get counters(): Record<string, number> {
     return {
