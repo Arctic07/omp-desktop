@@ -61,6 +61,8 @@ export interface PluginActions {
   failures: Readonly<Record<string, ApiError>>
   /** Turn one installation's switch: the consent gate, or the write itself. */
   toggle: (row: PluginRow) => void
+  /** Open the confirmation dialog for a row whose code has not been agreed to yet. */
+  requestConsent: (row: PluginRow) => void
   /** Ask the page to open the uninstall card for one installation. */
   requestUninstall: (row: PluginRow) => void
   /**

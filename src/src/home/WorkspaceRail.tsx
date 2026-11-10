@@ -9,6 +9,7 @@ import {
   MessageSquarePlus,
   Pencil,
   Settings,
+  Store,
   Trash2,
 } from "lucide-react";
 import {
@@ -102,6 +103,12 @@ function renderSidebarIcon(item: SidebarResource): ReactNode {
 export interface WorkspaceRailProps {
   /** The rail's own settings entry, at the foot of the sidebar. */
   onOpenSettings?: () => void;
+  /** The rail's own door to the plugin marketplace, under conversation search. */
+  onOpenMarket?: () => void;
+  /** Whether the marketplace is the surface on screen, so its row reads as chosen. */
+  marketOpen?: boolean;
+  /** A conversation was opened from the rail: the shell leaves the marketplace for it. */
+  onOpenConversation?: () => void;
   className?: string;
 }
 
@@ -114,7 +121,13 @@ export interface WorkspaceRailProps {
  * re-read that state would rebuild the whole tree with it: the rail's own rows change on the
  * moments a conversation is opened or a turn begins, and on nothing in between.
  */
-export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps) {
+export function WorkspaceRail({
+  onOpenSettings,
+  onOpenMarket,
+  marketOpen = false,
+  onOpenConversation,
+  className,
+}: WorkspaceRailProps) {
   const copy = useCopy(COPY);
   const workspaces = useStoreSelector(workspaceStore, (state) => state);
   const railBody = workspaceRailBody(workspaces);
@@ -338,8 +351,9 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
     const node = parseSidebarNodeId(id);
     if (!node || node.kind !== "session") return;
     setSelectedNode(id);
+    onOpenConversation?.();
     void selectSession(node.workspaceId, node.sessionId);
-  }, []);
+  }, [onOpenConversation]);
 
   /** A workspace row's own button: a conversation started in that workspace, from the row itself. */
   const renderRowAction = useCallback(
@@ -357,6 +371,7 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
             aria-label={`${copy.newSessionInWorkspace}: ${item.label}`}
             onClick={(event) => {
               event.stopPropagation();
+              onOpenConversation?.();
               void startSessionIn(node.workspaceId);
             }}
             className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground"
@@ -366,7 +381,7 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
         </Tooltip>
       );
     },
-    [copy.newSessionInWorkspace],
+    [copy.newSessionInWorkspace, onOpenConversation],
   );
 
   /** The rail's paging: one more page at a time, and straight back to the first. */
@@ -523,6 +538,7 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
               icon={MessageSquarePlus}
               onSelect={() => {
                 controls.close();
+                onOpenConversation?.();
                 void startSessionIn(node.workspaceId);
               }}
             >
@@ -563,14 +579,16 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
         />
       );
     },
-    [copy],
+    [copy, onOpenConversation],
   );
 
   const openPluginPage = useCallback(
     (pageKey: string) => {
-      if (activeSessionId !== null) openPluginTab(activeSessionId, pageKey);
+      if (activeSessionId === null) return;
+      onOpenConversation?.();
+      openPluginTab(activeSessionId, pageKey);
     },
-    [activeSessionId],
+    [activeSessionId, onOpenConversation],
   );
 
   return (
@@ -591,14 +609,31 @@ export function WorkspaceRail({ onOpenSettings, className }: WorkspaceRailProps)
                 <AnimatedSidebarMenuItem>
                   <AnimatedSidebarMenuButton
                     icon={<MessageSquarePlus className="size-4" />}
-                    onSelect={() => void startNewSession()}
+                    onSelect={() => {
+                      onOpenConversation?.();
+                      void startNewSession();
+                    }}
                     className="font-normal text-foreground"
                   >
                     {copy.actionNewTask}
                   </AnimatedSidebarMenuButton>
                 </AnimatedSidebarMenuItem>
                 <AnimatedSidebarMenuItem>
-                  <ConversationSearchRow workspaces={workspaces.items} sessions={sessions} />
+                  <ConversationSearchRow
+                    workspaces={workspaces.items}
+                    sessions={sessions}
+                    onOpenConversation={onOpenConversation}
+                  />
+                </AnimatedSidebarMenuItem>
+                <AnimatedSidebarMenuItem>
+                  <AnimatedSidebarMenuButton
+                    icon={<Store className="size-4" />}
+                    isActive={marketOpen}
+                    onSelect={onOpenMarket}
+                    className="font-normal text-foreground"
+                  >
+                    {copy.openMarket}
+                  </AnimatedSidebarMenuButton>
                 </AnimatedSidebarMenuItem>
               </AnimatedSidebarMenu>
             </AnimatedSidebarGroupContent>

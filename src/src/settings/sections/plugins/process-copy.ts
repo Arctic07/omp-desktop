@@ -3,10 +3,10 @@ import type { Localized } from '@/lib/i18n'
 /**
  * The wording of a plugin's resident process, in both languages.
  *
- * Its own file for the same reason `store-copy.ts` has one: the page's table is already long enough
- * that a second subject would push it past the line limit (`rules.md#single-file-line-limit`). `PluginsCopy` extends
- * this interface, so a component still reads one copy object and the two tables cannot drift apart
- * without failing to compile.
+ * Its own file for the same reason the market page's `market-copy.ts` has one: the page's table is
+ * already long enough that a second subject would push it past the line limit
+ * (`rules.md#single-file-line-limit`). `PluginsCopy` extends this interface, so a component still
+ * reads one copy object and the two tables cannot drift apart without failing to compile.
  *
  * `processCodeNote` is the 「会运行代码」 tier of the three safety statements: the same trust the
  * consent card states for extension modules, said again where a process is started. It is

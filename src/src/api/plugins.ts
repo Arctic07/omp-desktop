@@ -28,7 +28,6 @@ import type {
   InspectPackageView,
   JsonObject,
   MarketplacePluginsView,
-  MarketplacesRefreshView,
   PluginGrantsView,
   PluginNoticeEvent,
   PluginProcessesView,
@@ -357,11 +356,6 @@ export function removeMarketplace(name: string): Promise<EngineMarketplacesView>
 /** Updates one marketplace's catalogue, or every one when `name` is null. */
 export function updateMarketplace(name: string | null): Promise<EngineMarketplacesView> {
   return call(COMMANDS.engineMarketplaceUpdate, { name })
-}
-
-/** Re-reads every registered marketplace, honouring the host's own throttle. */
-export function refreshMarketplaces(): Promise<MarketplacesRefreshView> {
-  return call(COMMANDS.engineMarketplacesRefresh)
 }
 
 /** The catalogue entries the store lists, across every marketplace or from one of them. */

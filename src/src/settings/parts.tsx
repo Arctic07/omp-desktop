@@ -18,18 +18,21 @@ export function SettingsGroup({
   description,
   children,
 }: {
-  title: string
+  /** Omit when the section is already named by the controls above it. */
+  title?: string
   description?: string
   children: ReactNode
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <header className="flex flex-col gap-[3px]">
-        <h3 className="text-[15px] leading-[22px] font-semibold text-foreground">{title}</h3>
-        {description ? (
-          <p className="text-[13px] leading-[19px] text-muted-foreground">{description}</p>
-        ) : null}
-      </header>
+      {title === undefined ? null : (
+        <header className="flex flex-col gap-[3px]">
+          <h3 className="text-[15px] leading-[22px] font-semibold text-foreground">{title}</h3>
+          {description ? (
+            <p className="text-[13px] leading-[19px] text-muted-foreground">{description}</p>
+          ) : null}
+        </header>
+      )}
       {children}
     </section>
   )

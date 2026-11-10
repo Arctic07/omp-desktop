@@ -30,17 +30,18 @@ import { MCP_COPY, transportOf, type McpTransport } from '@/settings/sections/mc
 import { definitionFromJson, objectField } from '@/settings/sections/mcp-json'
 
 /**
- * The definition editor: one card, two ways of writing the same thing.
+ * The definition editor: one form page, two ways of writing the same thing.
  *
- * The card is the page's last block and the page owns its open/closed state, so this component only
- * holds what is being typed. It offers the two editors the reference offers — a form for the shape
- * this application writes, and a JSON view for pasting a definition from somewhere else — and the
- * name and scope stay part of both, because a definition is addressed by the pair.
+ * The MCP section renders this in place of the list while a definition is open, so the section owns
+ * the open/closed state and this component only holds what is being typed. It offers the two editors
+ * the reference offers — a form for the shape this application writes, and a JSON view for pasting a
+ * definition from somewhere else — and the name and scope stay part of both, because a definition is
+ * addressed by the pair.
  *
  * Three rules the page's write path depends on:
  *
  * - **A refusal keeps the input.** The host's answer arrives as `failure` and this component is not
- *   remounted for it, so nothing typed is lost; only a write that landed closes the card.
+ *   remounted for it, so nothing typed is lost; only a write that landed closes the page.
  * - **The keys the form owns are the ones the host replaces** (`type`, `command`, `args`, `env`,
  *   `url`, `headers`, `cwd`, `timeout`). A pasted object's other keys are named rather than dropped
  *   in silence, because this form cannot carry them back out.
@@ -72,6 +73,8 @@ export interface McpServerEditorProps {
   onSave: (payload: McpDefinitionPayload) => void
   onRemove: (payload: McpRemovePayload) => void
   onCancel: () => void
+  /** The scope a new definition starts at: the page's workspace picker. */
+  defaultScope: EngineMcpScope
 }
 
 /** The transports a definition may name, in the order the picker shows them. */
@@ -168,6 +171,7 @@ export default function McpServerEditor({
   onSave,
   onRemove,
   onCancel,
+  defaultScope,
 }: McpServerEditorProps) {
   const copy = useCopy(MCP_COPY)
 
@@ -176,7 +180,9 @@ export default function McpServerEditor({
 
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [name, setName] = useState(subject === null ? '' : subject.name)
-  const [scope, setScope] = useState<EngineMcpScope>(scopeOf(subject === null ? null : subject.scope))
+  const [scope, setScope] = useState<EngineMcpScope>(
+    copied || subject === null ? defaultScope : scopeOf(subject.scope),
+  )
   const [transport, setTransport] = useState<McpTransport>(
     transportOf(subject === null ? 'stdio' : subject.transport),
   )

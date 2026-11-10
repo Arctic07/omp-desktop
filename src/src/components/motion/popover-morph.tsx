@@ -233,6 +233,8 @@ export interface MorphPopoverContentProps {
   radius?: number;
   /** Draw the surface shadow. Default true. */
   shadow?: boolean;
+  /** Draw a small notch pointing back at the trigger. Default false. */
+  arrow?: boolean;
   /**
    * Make the panel exactly as wide as the element it opened from.
    *
@@ -269,6 +271,7 @@ function MorphPopoverSurface({
   sideOffset = 8,
   radius = 16,
   shadow = true,
+  arrow = false,
   matchTriggerWidth = false,
   onOpenAutoFocus,
   className,
@@ -433,6 +436,18 @@ function MorphPopoverSurface({
       >
         {children}
       </motion.div>
+      {arrow ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "absolute size-2 rotate-45 border-border bg-background",
+            resolvedSide === "top"
+              ? "-bottom-1 border-r border-b"
+              : "-top-1 border-t border-l",
+            align === "end" ? "right-5" : "left-5",
+          )}
+        />
+      ) : null}
     </motion.div>
   );
 }

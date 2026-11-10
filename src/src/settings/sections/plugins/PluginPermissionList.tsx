@@ -27,15 +27,23 @@ export function PluginPermissionList({
   netDomains,
   netAnyHost,
   copy,
+  compact = false,
 }: {
   permissions: readonly string[]
   netDomains: readonly string[]
   /** `omp.desktop.net.anyHost`: the second key, which replaces the list with one sentence. */
   netAnyHost?: boolean
   copy: PluginsCopy
+  /** The confirmation dialog shows the same facts at the smaller reading size. */
+  compact?: boolean
 }) {
+  const body = compact ? 'text-xs leading-[18px]' : 'text-[13px] leading-[19px]'
+  const label = compact
+    ? 'text-xs leading-[18px] font-medium'
+    : 'text-[13px] leading-5 font-medium'
+  const code = compact ? 'text-[10px] leading-4' : 'text-[11px] leading-4'
   if (permissions.length === 0) {
-    return <p className="text-[13px] leading-[19px] text-muted-foreground">{copy.permissionsNone}</p>
+    return <p className={`${body} text-muted-foreground`}>{copy.permissionsNone}</p>
   }
 
   // The domains only mean something next to `net.fetch`, which is the permission they scope.
@@ -46,30 +54,30 @@ export function PluginPermissionList({
   const anyPath = pluginReachesAnyPath(permissions)
 
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'}`}>
       {permissions.map((permission) => {
         const widened = anyPath && (PLUGIN_FS_MODE_PERMISSIONS as readonly string[]).includes(permission)
         const scope = widened ? '' : pluginPermissionScope(permission, copy)
         return (
           <li key={permission} className="flex flex-col gap-1">
             <span className="flex flex-wrap items-center gap-2">
-              <strong className="text-[13px] leading-5 font-medium text-foreground">
+              <strong className={`${label} text-foreground`}>
                 {pluginPermissionLabel(permission, copy)}
               </strong>
-              <code className="rounded-md bg-muted px-1.5 py-px font-mono text-[11px] leading-4 text-muted-foreground">
+              <code className={`rounded-md bg-muted px-1.5 py-px font-mono ${code} text-muted-foreground`}>
                 {permission}
               </code>
             </span>
             {scope === '' ? null : (
-              <span className="text-[13px] leading-[19px] text-muted-foreground">{scope}</span>
+              <span className={`${body} text-muted-foreground`}>{scope}</span>
             )}
             {permission === 'net.fetch' && domains.length > 0 ? (
-              <span className="flex flex-wrap items-center gap-1.5 text-[13px] leading-[19px] text-muted-foreground">
+              <span className={`flex flex-wrap items-center gap-1.5 ${body} text-muted-foreground`}>
                 <span>{copy.permissionDomainsLabel}</span>
                 {domains.map((domain) => (
                   <code
                     key={domain}
-                    className="rounded-md bg-muted px-1.5 py-px font-mono text-[11px] leading-4 text-muted-foreground"
+                    className={`rounded-md bg-muted px-1.5 py-px font-mono ${code} text-muted-foreground`}
                   >
                     {domain}
                   </code>
@@ -77,7 +85,7 @@ export function PluginPermissionList({
               </span>
             ) : null}
             {permission === 'net.anyHost' && anyHost ? (
-              <span className="text-[13px] leading-[19px] text-muted-foreground">
+              <span className={`${body} text-muted-foreground`}>
                 {copy.permissionAnyHostLabel}
               </span>
             ) : null}

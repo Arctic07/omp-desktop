@@ -70,13 +70,19 @@ export interface ConversationSearchRowProps {
   workspaces: readonly WorkspaceSummary[];
   /** Every workspace's conversation list, keyed by workspace id. */
   sessions: Readonly<Record<number, WorkspaceSessions>>;
+  /** A row was chosen: the shell leaves any surface that is not the conversation column. */
+  onOpenConversation?: () => void;
 }
 
 /**
  * The rail's search row and the panel it opens. The caller draws it inside one
  * `AnimatedSidebarMenuItem`.
  */
-export function ConversationSearchRow({ workspaces, sessions }: ConversationSearchRowProps) {
+export function ConversationSearchRow({
+  workspaces,
+  sessions,
+  onOpenConversation,
+}: ConversationSearchRowProps) {
   const copy = useCopy(COPY);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -148,6 +154,7 @@ export function ConversationSearchRow({ workspaces, sessions }: ConversationSear
     setOpen(false);
     setQuery("");
     setActiveIndex(0);
+    onOpenConversation?.();
     // Opening crosses workspaces on its own (`selectSession` activates the row's workspace first),
     // so a conversation found here opens exactly as it would from its row in the tree.
     if (row.kind === "title") {
@@ -159,7 +166,7 @@ export function ConversationSearchRow({ workspaces, sessions }: ConversationSear
     const workspaceId = row.hit.workspaceId;
     if (workspaceId === undefined) return;
     void selectSession(workspaceId, row.hit.sessionId);
-  }, []);
+  }, [onOpenConversation]);
 
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);

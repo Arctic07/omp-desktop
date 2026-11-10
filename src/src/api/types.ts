@@ -107,7 +107,6 @@ export const COMMANDS = {
   engineMarketplacePlugins: 'engine_marketplace_plugins',
   engineMarketplaceRemove: 'engine_marketplace_remove',
   engineMarketplaceUpdate: 'engine_marketplace_update',
-  engineMarketplacesRefresh: 'engine_marketplaces_refresh',
   importComposerFiles: 'import_composer_files',
   saveComposerPaste: 'save_composer_paste',
   resolveClipboardFilePaths: 'resolve_clipboard_file_paths',

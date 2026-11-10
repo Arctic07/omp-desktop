@@ -15,6 +15,8 @@
  * category the catalogue did not declare (spec §3.4, R2 §1.6).
  */
 
+import * as fs from 'node:fs/promises'
+
 import type { BootServices } from './boot.ts'
 import { requireText, resolveCwd } from './capabilities.ts'
 import { PLUGIN_ID_MAX, PLUGIN_KEY_MAX, PLUGIN_SOURCE_MAX } from './constants.ts'
@@ -290,9 +292,27 @@ export function pluginToolchainRefusal(action: string, tool: string): HostError 
   return new HostError(ERROR_CODES.plugin_install_unavailable, `The ${action} could not run: ${tool} is not available on this machine.`)
 }
 
-/** One registry entry as the desktop renders it: the name it is addressed by, and its source. */
-function marketplaceRow(entry: MarketplaceRegistryEntry): Record<string, unknown> {
-  return { name: entry.name, sourceUri: entry.sourceUri }
+/**
+ * One registry row the desktop renders.
+ *
+ * `sourceType` stays host-side: it decides whether the source's path can be checked, and the page
+ * never renders it. `available` is this host's fact: a remote source can be refreshed without the
+ * filesystem, while a local directory that no longer exists can neither be refreshed nor browsed.
+ */
+async function marketplaceRow(entry: MarketplaceRegistryEntry): Promise<Record<string, unknown>> {
+  let available = true
+  if (entry.sourceType === 'local') {
+    try {
+      available = (await fs.stat(entry.sourceUri)).isDirectory()
+    } catch {
+      available = false
+    }
+  }
+  return {
+    name: entry.name,
+    sourceUri: entry.sourceUri,
+    available,
+  }
 }
 
 /**
@@ -304,7 +324,7 @@ function marketplaceRow(entry: MarketplaceRegistryEntry): Record<string, unknown
 async function registryView(sdk: SdkBundle, cwd: string): Promise<Record<string, unknown>> {
   const { market } = await pluginManagers(sdk, cwd)
   const entries = await market.listMarketplaces()
-  return { marketplaces: entries.map(entry => marketplaceRow(entry)) }
+  return { marketplaces: await Promise.all(entries.map(entry => marketplaceRow(entry))) }
 }
 
 /** `marketplaces_list`: every catalog the user has added. */

@@ -5,11 +5,11 @@ import type {
   EnginePluginSourceOption,
   EnginePluginToolchain,
   EnginePluginUpdate,
-  MarketplacePluginRow,
   PluginRow,
   PluginSettingSchema,
 } from '@/api/plugins-types'
 import type { Language } from '@/lib/i18n'
+import { manifestText } from '../../../lib/manifest-text.ts'
 import type { PluginsCopy } from '@/settings/sections/plugins/copy'
 
 /**
@@ -46,11 +46,6 @@ const HOST_CODES: Readonly<Record<string, true>> = {
   ENGINE_SPAWN_FAILED: true,
   ENGINE_CHECKSUM_MISMATCH: true,
   ENGINE_PROTOCOL: true,
-}
-
-/** One manifest string as the wire may carry it: anything that is not a string is not text. */
-function manifestText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
 }
 
 /** The plugin's own i18n block for one language, or null when the manifest carries none. */
@@ -458,63 +453,4 @@ export function pluginStatus(row: PluginRow): PluginRowStatus {
 /** The label of one scope; an unknown scope is shown as the host spelled it. */
 export function pluginScopeLabel(scope: string, copy: PluginsCopy): string {
   return copy.scopeLabels[scope] ?? scope
-}
-
-/* ------------------------------------------------------------------- the store */
-
-/** The installation id one catalogue entry installs as: `name@marketplace`, the engine's spelling. */
-function storeInstallId(entry: { name: string; marketplace: string }): string {
-  return `${entry.name}@${entry.marketplace}`
-}
-
-/** One catalogue entry as the store draws it: every listing field, '' where none was published. */
-interface StoreEntryView {
-  name: string
-  description: string
-  version: string
-  author: string
-  homepage: string
-  repository: string
-  license: string
-  category: string
-  tags: readonly string[]
-  source: string
-  /** The installation this entry would create, spelled the engine's own way. */
-  installId: string
-}
-
-/** One catalogue entry projected for a card; a field the listing did not publish draws no line. */
-export function storeEntryView(entry: MarketplacePluginRow): StoreEntryView {
-  return {
-    name: entry.name,
-    description: manifestText(entry.description),
-    version: manifestText(entry.version),
-    author: manifestText(entry.author),
-    homepage: manifestText(entry.homepage),
-    repository: manifestText(entry.repository),
-    license: manifestText(entry.license),
-    category: manifestText(entry.category),
-    tags: entry.tags.filter((tag) => tag.trim() !== ''),
-    source: manifestText(entry.source),
-    installId: storeInstallId(entry),
-  }
-}
-
-/** The haystack one catalogue entry contributes: the four fields the contract publishes. */
-function storeSearchText(entry: MarketplacePluginRow): string {
-  return [entry.name, entry.description ?? '', entry.category ?? '', entry.tags.join(' ')]
-    .join(' ')
-    .toLowerCase()
-}
-
-/** The entries the store's query selects, in the engine's own order. */
-export function filterStoreEntries(
-  entries: readonly MarketplacePluginRow[],
-  query: string,
-): MarketplacePluginRow[] {
-  const term = query.trim().toLowerCase()
-  if (term === '') {
-    return [...entries]
-  }
-  return entries.filter((entry) => storeSearchText(entry).includes(term))
 }

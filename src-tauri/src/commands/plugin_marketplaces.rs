@@ -1,5 +1,4 @@
-//! The marketplace commands: the registry the engine knows, the catalogue entries it holds, and the
-//! refresh that keeps both current.
+//! The marketplace commands: the registry the engine knows and the catalogue entries it holds.
 //!
 //! Split from `commands::plugins` (`rules.md#single-file-line-limit`) along the seam the surfaces already have: this
 //! module is the *store's* half of the plugin domain - what can be installed from where - while
@@ -9,16 +8,12 @@
 //!
 //! Every command is the thin half of its pair, like the ones beside it: this layer bounds the
 //! argument and converts the answer, and the engine's own manager does the work
-//! (`services::runtime::host::plugins`). One of them is not a straight pass-through - the refresh
-//! carries the process's throttle (`state::AppState::marketplace_refresh_due`) and reports honestly
-//! whether it fetched or answered from what it already had.
+//! (`services::runtime::host::plugins`).
 
 use tauri::State;
 
 use crate::errors::IpcError;
-use crate::models::plugins::{
-    EngineMarketplacePluginsView, EngineMarketplacesView, MarketplacesRefreshView,
-};
+use crate::models::plugins::{EngineMarketplacePluginsView, EngineMarketplacesView};
 use crate::services::plugins::builtin;
 use crate::services::plugins::imports;
 use crate::services::plugins::validate::{
@@ -128,34 +123,4 @@ pub(crate) async fn engine_marketplace_update(
         None => None,
     };
     state.runtime.marketplace_update(name.as_deref()).await
-}
-
-/// Refreshes every registered marketplace, unless this process refreshed them a moment ago.
-///
-/// The store calls this once when it opens, and a refresh fetches every registered catalogue: the
-/// throttle (`state::AppState::marketplace_refresh_due`) is what keeps a second visit inside ten
-/// minutes from fetching them all again. A throttled call is not an error and not a silent no-op: it
-/// answers with the registry this process already has and says `throttled: true`, which is the
-/// honest half of "nothing was fetched". Only a *successful* refresh records the time, so a failure
-/// leaves the next visit free to try again.
-///
-/// The manual refresh (`engine_marketplace_update`) is deliberately not throttled: a user who
-/// presses refresh is asking for a fetch.
-#[tauri::command]
-pub(crate) async fn engine_marketplaces_refresh(
-    state: State<'_, AppState>,
-) -> Result<MarketplacesRefreshView, IpcError> {
-    if !state.marketplace_refresh_due() {
-        let marketplaces = state.runtime.marketplaces().await?;
-        return Ok(MarketplacesRefreshView {
-            marketplaces: marketplaces.marketplaces,
-            throttled: true,
-        });
-    }
-    let refreshed = state.runtime.marketplace_update(None).await?;
-    state.remember_marketplace_refresh();
-    Ok(MarketplacesRefreshView {
-        marketplaces: refreshed.marketplaces,
-        throttled: false,
-    })
 }

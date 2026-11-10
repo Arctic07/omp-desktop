@@ -378,6 +378,8 @@ export async function setMcpEnabled(
     name,
     enabled,
   })
+  if (enabled) await connectEnabled(sdk, sessions, cwd, name)
+  else await disconnectEvery(sdk, sessions, name)
   return await mcpView(paths, sdk, sessions, cwd)
 }
 
@@ -540,6 +542,58 @@ function mergedDefinition(existing: unknown, input: DefinitionInput): EngineMcpC
   }
   if (input.timeoutMs !== null) merged.timeout = input.timeoutMs
   return engineConfig(merged)
+}
+
+/**
+ * Bring one discovered server up in every live manager.
+ *
+ * Unlike `connectWritten`, this is not limited to the two config files this application writes: a
+ * plugin MCP is discovered from the plugin's own `.mcp.json` and the manager can connect the
+ * discovered definition directly. That is what makes a switch work without waiting for the next
+ * conversation.
+ */
+async function connectEnabled(
+  sdk: SdkBundle,
+  sessions: SessionRegistry,
+  cwd: string,
+  name: string,
+): Promise<void> {
+  const managers = liveManagers(sdk, sessions)
+  if (managers.length === 0) return
+  sdk.resetCapabilities()
+  const discovered = await sdk.mcpServers(cwd)
+  const server = discovered.items.find(entry => entry.name === name)
+  if (server === undefined || server._source === undefined) return
+  // `MCPServer` names the transport `transport`; the manager's config names it `type` and defaults
+  // to stdio. Passing the discovery row through unchanged turns an http/sse server into a stdio
+  // one, which the manager rejects for a missing command.
+  const { _source: source, transport, ...fields } = server
+  const config = { ...fields, type: transport ?? 'stdio' } as unknown as EngineMcpConfig
+  await Promise.all(
+    managers.map(async manager => {
+      try {
+        await manager.connectServers({ [name]: config }, { [name]: source })
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        logLine(`mcp: "${name}" did not connect after its switch was turned on: ${reason}`)
+      }
+    }),
+  )
+}
+
+/** Drop one server from every live manager, so a switched-off row stops reporting a connection. */
+async function disconnectEvery(sdk: SdkBundle, sessions: SessionRegistry, name: string): Promise<void> {
+  const managers = liveManagers(sdk, sessions)
+  await Promise.all(
+    managers.map(async manager => {
+      try {
+        await manager.disconnectServer(name)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        logLine(`mcp: "${name}" did not disconnect: ${reason}`)
+      }
+    }),
+  )
 }
 
 /**

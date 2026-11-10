@@ -315,7 +315,6 @@ pub fn run() {
             commands::plugin_marketplaces::engine_marketplace_plugins,
             commands::plugin_marketplaces::engine_marketplace_remove,
             commands::plugin_marketplaces::engine_marketplace_update,
-            commands::plugin_marketplaces::engine_marketplaces_refresh,
             commands::open_in_app::open_in_app_apps,
             commands::open_in_app::open_in_app_icon,
             commands::open_in_app::open_in_app_launch,

@@ -317,6 +317,8 @@ export interface EngineMarketplaceRow {
   name: string
   /** What the registry stores as the source: `owner/repo`, or the URL it was added by. */
   sourceUri: string
+  /** Host-derived: false when a local source's directory no longer exists; null means unknown. */
+  available?: boolean | null
 }
 
 export interface EngineMarketplacesView {
@@ -380,13 +382,6 @@ export interface MarketplacePluginRow {
 
 export interface MarketplacePluginsView {
   plugins: MarketplacePluginRow[]
-}
-
-/** The registry as it stands after a refresh that may have been throttled. */
-export interface MarketplacesRefreshView {
-  marketplaces: EngineMarketplaceRow[]
-  /** True when a refresh was skipped because the last successful one is recent. */
-  throttled: boolean
 }
 
 /* --------------------------------------------------------------- lifecycle */

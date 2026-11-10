@@ -16,7 +16,10 @@ export interface PanelShortcutsOptions {
   selectEntry: (entry: Pick<ToolMenuEntry, "action" | "pageKey">) => void;
 }
 
-export function usePanelShortcuts({ cycleTab, selectEntry }: PanelShortcutsOptions): void {
+export function usePanelShortcuts({
+  cycleTab,
+  selectEntry,
+}: PanelShortcutsOptions): void {
   const selectEntryRef = useRef(selectEntry);
   useEffect(() => {
     selectEntryRef.current = selectEntry;

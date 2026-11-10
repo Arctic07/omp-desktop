@@ -32,7 +32,6 @@ import {
   pluginConfig,
   pluginEngineInfo,
   pluginGrants,
-  refreshMarketplaces,
   reloadPlugins,
   removeMarketplace,
   resetPluginConfig,
@@ -65,6 +64,8 @@ import type {
   PluginTaskEvent,
   PluginsView,
 } from '@/api/plugins-types'
+import { BUILTIN_MARKETPLACE_SOURCE, isBuiltinMarketplace } from '@/lib/plugin-market'
+import { mcpResource, readMcp } from '@/state/mcp-store'
 import { createKeyedResource, createResource, createWorkspaceResource } from '@/state/resource'
 import { createStore } from '@/state/store'
 import { applyPluginProcessEvent, retainActivatedViews } from '@/state/plugin-process'
@@ -85,40 +86,70 @@ import { workspaceStore } from '@/state/workspace-store'
  * - which is what removed 终端 from the "+" menu for the rest of the run (2026-10-29, user
  * report). One retry after a beat turns that into a read that simply took two attempts.
  */
-export const pluginsResource = createWorkspaceResource<PluginsView>(async (workspaceId) => {
+async function fetchPlugins(workspaceId: number | null): Promise<PluginsView> {
   try {
     return await enginePlugins(workspaceId)
   } catch {
     await new Promise((resolve) => setTimeout(resolve, RETRY_AFTER_MS))
     return await enginePlugins(workspaceId)
   }
-})
+}
 
 /** How long the second attempt waits: long enough for a reload's IPC bridge to settle. */
 const RETRY_AFTER_MS = 250
+
+/** What the shell (rail, menu, plugin pages) reads: the conversation's active workspace. */
+export const pluginsResource = createWorkspaceResource<PluginsView>(fetchPlugins)
+
+/**
+ * What plugin management and the marketplace read: their own scope picker.
+ *
+ * They must not share the shell's resource. Choosing workspace B in settings is not a statement that
+ * the conversation moved to B, yet a shared read would recompute the rail's plugin pages and prune
+ * A's open tabs. One resource per surface keeps the shell on its conversation while each page
+ * answers for the directory it displays.
+ */
+export const settingsPluginsResource = createWorkspaceResource<PluginsView>(fetchPlugins)
+export const marketPluginsResource = createWorkspaceResource<PluginsView>(fetchPlugins)
 
 export function readPlugins(workspaceId: number | null, force = false): Promise<void> {
   return pluginsResource.read(workspaceId, { force })
 }
 
+export function readSettingsPlugins(workspaceId: number | null, force = false): Promise<void> {
+  return settingsPluginsResource.read(workspaceId, { force })
+}
+
+export function readMarketPlugins(workspaceId: number | null, force = false): Promise<void> {
+  return marketPluginsResource.read(workspaceId, { force })
+}
+
 /**
  * One list write: adopt the host's own answer, or hand back the refusal.
  *
- * The answer belongs to the workspace the write named. A write can outlive the reader's switch to
- * another workspace, and adopting it then would put the old workspace's installations on screen
- * under the new one - where every button would speak about rows that are not there.
+ * The answer belongs to the workspace the write named. The keyed resource drops an answer that
+ * arrived after the page moved to another scope, so the rows on screen always belong to the scope
+ * the reader is looking at.
  */
-function stillOnWorkspace(workspaceId: number | null): boolean {
-  return workspaceStore.get().activeId === workspaceId
-}
-
 async function writePlugins(
   workspaceId: number | null,
   run: () => Promise<PluginsView>,
 ): Promise<ApiError | null> {
   try {
     const view = await run()
-    if (stillOnWorkspace(workspaceId)) pluginsResource.adopt(view)
+    // A write belongs to every surface currently showing that key; the keyed resource drops it for
+    // a surface that has moved elsewhere. The shell is included so an active-workspace write is
+    // visible there without a re-read.
+    const settingsAdopted = settingsPluginsResource.adopt(view, workspaceId)
+    const marketAdopted = marketPluginsResource.adopt(view, workspaceId)
+    const shellAdopted = pluginsResource.adopt(view, workspaceId)
+    if (settingsAdopted || marketAdopted || shellAdopted) {
+      // A plugin install, enable/disable or uninstall changes the MCP servers the engine discovers
+      // from that plugin's directory. Drop the old view first so the reader cannot see the removed
+      // plugin's rows while the fresh read is in flight, then read again.
+      mcpResource.reset()
+      void readMcp(workspaceId, true)
+    }
     return null
   } catch (error) {
     return toApiError(error)
@@ -209,7 +240,10 @@ export async function writePluginSwitch(
 ): Promise<PluginSwitchOutcome> {
   try {
     const view = await updatePluginSwitch(workspaceId, pluginId, scope, targetMarketplace)
-    if (stillOnWorkspace(workspaceId)) pluginsResource.adopt({ plugins: view.plugins })
+    const list = { plugins: view.plugins }
+    settingsPluginsResource.adopt(list, workspaceId)
+    marketPluginsResource.adopt(list, workspaceId)
+    pluginsResource.adopt(list, workspaceId)
     return { switched: view.switched, error: null }
   } catch (error) {
     return { switched: null, error: toApiError(error) }
@@ -262,12 +296,21 @@ export async function reloadPluginState(
 
 /* ------------------------------------------------------------ consent grants */
 
-export const grantsResource = createWorkspaceResource<PluginGrantRow[]>((workspaceId) =>
-  pluginGrants(workspaceId).then((view) => view.grants),
-)
+async function fetchGrants(workspaceId: number | null): Promise<PluginGrantRow[]> {
+  return pluginGrants(workspaceId).then((view) => view.grants)
+}
 
-export function readGrants(workspaceId: number | null, force = false): Promise<void> {
-  return grantsResource.read(workspaceId, { force })
+/** Plugin management's own grants: same reason as the installation list. */
+export const settingsGrantsResource = createWorkspaceResource<PluginGrantRow[]>(fetchGrants)
+/** The marketplace's own grants: same reason as the installation list. */
+export const marketGrantsResource = createWorkspaceResource<PluginGrantRow[]>(fetchGrants)
+
+export function readSettingsGrants(workspaceId: number | null, force = false): Promise<void> {
+  return settingsGrantsResource.read(workspaceId, { force })
+}
+
+export function readMarketGrants(workspaceId: number | null, force = false): Promise<void> {
+  return marketGrantsResource.read(workspaceId, { force })
 }
 
 /** Record or revoke the agreement to run one installation's code. */
@@ -279,8 +322,10 @@ export async function writeGrant(
 ): Promise<ApiError | null> {
   try {
     const view = await setPluginGrant(workspaceId, pluginId, granted, scope)
-    // Same rule as a list write: a grant belongs to the workspace it was recorded in.
-    if (stillOnWorkspace(workspaceId)) grantsResource.adopt(view.grants)
+    // Same rule as a list write: a grant belongs to the workspace it was recorded in, and each
+    // surface that is showing that workspace adopts it.
+    settingsGrantsResource.adopt(view.grants, workspaceId)
+    marketGrantsResource.adopt(view.grants, workspaceId)
     return null
   } catch (error) {
     return toApiError(error)
@@ -328,6 +373,34 @@ export async function writeMarketplaceAdd(source: string): Promise<ApiError | nu
   }
 }
 
+/**
+ * The one marketplace this build registers without being asked.
+ *
+ * The registry is the engine's, so the seed is an ordinary `marketplaces_add` — the engine's own
+ * classifier resolves the shorthand and fetches the catalogue. One in-flight promise per process:
+ * the market page mounts once, but a reload or a second mount must not add the same source twice.
+ * A source the reader already removed is added again on the next visit: the built-in marketplace is
+ * part of what the page promises, and its own remove control is not drawn.
+ */
+let builtinMarketplaceSeed: Promise<ApiError | null> | null = null
+
+export function ensureBuiltinMarketplace(): Promise<ApiError | null> {
+  builtinMarketplaceSeed ??= (async () => {
+    try {
+      const current = await marketplaces()
+      marketplacesResource.adopt(current.marketplaces)
+      if (current.marketplaces.some(isBuiltinMarketplace)) return null
+      marketplacesResource.adopt((await addMarketplace(BUILTIN_MARKETPLACE_SOURCE)).marketplaces)
+      return null
+    } catch (error) {
+      return toApiError(error)
+    }
+  })().finally(() => {
+    builtinMarketplaceSeed = null
+  })
+  return builtinMarketplaceSeed
+}
+
 export async function writeMarketplaceRemove(name: string): Promise<ApiError | null> {
   try {
     marketplacesResource.adopt((await removeMarketplace(name)).marketplaces)
@@ -343,21 +416,6 @@ export async function writeMarketplaceUpdate(name: string | null): Promise<ApiEr
     return null
   } catch (error) {
     return toApiError(error)
-  }
-}
-
-/** Re-read every marketplace. `throttled` is the host's honest half of the answer. */
-export async function refreshMarketplaceCatalogue(): Promise<{
-  throttled: boolean
-  error: ApiError | null
-}> {
-  try {
-    const answer = await refreshMarketplaces()
-    marketplacesResource.adopt(answer.marketplaces)
-    await readCatalogue(true)
-    return { throttled: answer.throttled, error: null }
-  } catch (error) {
-    return { throttled: false, error: toApiError(error) }
   }
 }
 

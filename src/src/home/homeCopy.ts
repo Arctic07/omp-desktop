@@ -56,6 +56,8 @@ export interface HomeCopy {
   /** The rail's own accessible name and the two run actions at its head. */
   sidebarLabel: string
   actionNewTask: string
+  /** The rail's own door to the plugin marketplace, under conversation search. */
+  openMarket: string
   actionSettings: string
   projectsLabel: string
   resourcesLabel: string
@@ -437,6 +439,7 @@ export const COPY: Localized<HomeCopy> = {
     },
     sidebarLabel: "Agent workspace",
     actionNewTask: "New conversation",
+    openMarket: "Plugin marketplace",
     actionSettings: "Settings",
     projectsLabel: "Conversations",
     resourcesLabel: "Conversation list",
@@ -702,6 +705,7 @@ export const COPY: Localized<HomeCopy> = {
     },
     sidebarLabel: "智能体工作区",
     actionNewTask: "新建对话",
+    openMarket: "插件市场",
     actionSettings: "设置",
     projectsLabel: "会话",
     resourcesLabel: "会话列表",

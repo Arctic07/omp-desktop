@@ -118,6 +118,13 @@ export interface RightSidebarProps {
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenChange: (open: boolean) => void;
+  /**
+   * A shortcut asked for a work-panel tab.
+   *
+   * The shortcuts are window-level and fire whatever surface is up; the shell uses this to leave a
+   * covering page (the plugin marketplace) so the tab it just opened is the one on screen.
+   */
+  onOpenPanel?: () => void;
   className?: string;
 }
 
@@ -154,6 +161,7 @@ export function RightSidebar({
   expanded,
   onToggleExpanded,
   onOpenChange,
+  onOpenPanel,
   className,
 }: RightSidebarProps) {
   const copy = useCopy(TERMINAL_COPY);
@@ -303,7 +311,14 @@ export function RightSidebar({
       // A plugin page: the same opener the sidebar group and the plugin's settings page use, so the
       // page never becomes two tabs (`state/panel-store.ts`).
       if (action === null) {
-        if (entry.pageKey !== null && sessionId !== null) openPluginTab(sessionId, entry.pageKey);
+        if (
+          entry.pageKey !== null &&
+          sessionId !== null &&
+          servedPluginKeys.has(entry.pageKey)
+        ) {
+          onOpenPanel?.();
+          openPluginTab(sessionId, entry.pageKey);
+        }
         return;
       }
       // A tool whose built-in plugin is not served is not offered; the strip hides the row, and
@@ -316,9 +331,18 @@ export function RightSidebar({
       if (toolEntryLocked(action, unwritten)) return;
       if (sessionId === null) return;
       // The one opener every surface shares (`state/panel-tools.ts`): the tab, and the column up.
+      onOpenPanel?.();
       openToolTab(sessionId, action, copy.title);
     },
-    [availability.browser, availability.terminal, copy.title, sessionId, unwritten],
+    [
+      availability.browser,
+      availability.terminal,
+      copy.title,
+      onOpenPanel,
+      servedPluginKeys,
+      sessionId,
+      unwritten,
+    ],
   );
 
   // Bring one tab of the strip on screen: the same three `select…` calls the strip's own tab buttons
@@ -345,10 +369,17 @@ export function RightSidebar({
     [sessionId],
   );
 
+  const leaveCoveringPage = useRef(onOpenPanel);
+  useEffect(() => {
+    leaveCoveringPage.current = onOpenPanel;
+  }, [onOpenPanel]);
+
   const cycleTab = useCallback(
     (step: number) => {
       const next = neighbouringTabOf(sessionId, step);
-      if (next !== null) showTab(next);
+      if (next === null) return;
+      leaveCoveringPage.current?.();
+      showTab(next);
     },
     [sessionId, showTab],
   );

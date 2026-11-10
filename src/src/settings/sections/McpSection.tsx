@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Download, Plug, Plus, RefreshCw, Search, TriangleAlert } from 'lucide-react'
+import { Download, Plug, Plus, RefreshCw, Search } from 'lucide-react'
 
 import type { EngineMcpError, EngineMcpServerRow } from '@/api/capabilities-types'
 import type { ApiError } from '@/api/client'
 import { AnimatedBadge } from '@/components/motion/animated-badge'
 import { Button } from '@/components/motion/button'
 import { Input } from '@/components/motion/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/motion/select'
 import { Switch } from '@/components/motion/switch'
 import { Tooltip } from '@/components/motion/tooltip'
 import { useCopy } from '@/lib/i18n'
@@ -41,7 +34,8 @@ import {
 import { ompImportStore } from '@/state/omp-import-store'
 import { useResourceState } from '@/state/resource'
 import { useStoreSelector } from '@/state/store'
-import { workspaceStore } from '@/state/workspace-store'
+import { WorkspaceScopeSelect } from '@/settings/WorkspaceScopeSelect'
+import { useWorkspaceScope } from '@/settings/use-workspace-scope'
 
 /**
  * The MCP page: what the engine found for this project, one switch per server, and the editor that
@@ -53,14 +47,12 @@ import { workspaceStore } from '@/state/workspace-store'
  * `configuredEnabled`, the user's own lists decide `enabled` (with `override` naming which list did
  * it), and connection status is a third that only exists once a session has created the MCP manager.
  *
- * A definition is editable only where this application owns the file that holds it — the host decides
- * that per row (`writable` / `scope`) from the same rule its write path uses — and a definition
- * another tool's file carries is listed, not rewritten: it is copied in through the import panel,
- * which hands the chosen row to the editor with a name the reader picks.
+ * A definition is editable in place only where this application owns the file that holds it — the
+ * host decides that per row (`writable` / `scope`) from the same rule its write path uses. A
+ * definition another tool's file carries is listed, not rewritten: clicking it opens the editor as
+ * a copy under a new suggested name, and saving writes a user-scope definition while the source
+ * stays untouched. The import panel uses the same editor for the same reason.
  */
-
-/** The active workspace: MCP discovery is per directory, so this is part of the read. */
-const selectActiveWorkspaceId = (state: { activeId: number | null }): number | null => state.activeId
 
 /** How many definitions one page of the installed list holds. */
 const MCP_PAGE_SIZE = 8
@@ -89,18 +81,30 @@ function owned(row: EngineMcpServerRow): boolean {
   return row.writable && row.scope !== null
 }
 
+/** A name for a copied definition that the list does not already hold. */
+function copyName(name: string, taken: readonly string[]): string {
+  const base = `${name}-local`
+  let candidate = base
+  let suffix = 2
+  while (taken.includes(candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+  return candidate
+}
+
 /**
  * One server: what it is, where it came from, and the switch the engine gates it by.
  *
- * `busy` marks the row whose write is in flight, and `disabled` covers every other row: two switches
- * writing the same setting at once could each read the same previous value. The row's own failed
- * write is stated beside it, in this page's sentence plus the engine's own code and message.
+ * `disabled` covers every row while one write is in flight: two switches writing the same setting
+ * at once could each read the same previous value. The switch is the only busy signal; no
+ * transient "saving" line is inserted beside it, so its own animation does not shift the row.
+ * The row's own failed write is stated below, in this page's sentence plus the engine's code and
+ * message.
  */
 function ServerRow({
   row,
   live,
-  busy,
-  disabled,
   failure,
   onToggle,
   onOpen,
@@ -108,8 +112,6 @@ function ServerRow({
   row: EngineMcpServerRow
   /** Whether a session has created the MCP manager yet, which is what a tool count needs. */
   live: boolean
-  busy: boolean
-  disabled: boolean
   failure: ApiError | null
   onToggle: (next: boolean) => void
   onOpen: () => void
@@ -117,6 +119,13 @@ function ServerRow({
   const copy = useCopy(MCP_COPY)
   const editable = owned(row)
   const status = statusOf(row.status)
+  /** A switched-off definition was never attempted, so it has no failure to report. */
+  const off = !row.enabled
+  const tone = off ? 'neutral' : STATUS_TONES[status]
+  const statusLabel = off ? copy.disabledBadge : copy.statusLabels[status]
+  const statusReason = off
+    ? copy.disabledReason
+    : (row.error ?? copy.statusReasons[status])
   // A server its file switches off, with no user-level list to explain it: the switch alone would
   // leave the reader guessing which side turned it off.
   const definitionOff = !row.configuredEnabled && row.override === 'none'
@@ -151,13 +160,13 @@ function ServerRow({
           className="max-w-[320px]"
           content={
             <span className="block text-xs leading-[18px]">
-              {row.error ?? copy.statusReasons[status]}
+              {statusReason}
             </span>
           }
         >
           <span className="inline-flex">
-            <AnimatedBadge status={STATUS_TONES[status]} size="sm" animated={false}>
-              {copy.statusLabels[status]}
+            <AnimatedBadge status={tone} size="sm" animated={false}>
+              {statusLabel}
             </AnimatedBadge>
           </span>
         </Tooltip>
@@ -177,42 +186,21 @@ function ServerRow({
           <Plug className="size-4" aria-hidden="true" />
         </span>
 
-        {editable ? (
-          <button
-            type="button"
-            aria-label={row.name}
-            onClick={onOpen}
-            className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {main}
-          </button>
-        ) : (
-          <div className="flex min-w-0 flex-1 flex-col gap-1">{main}</div>
-        )}
-
-        {busy ? (
-          <span className="text-xs leading-[18px] text-muted-foreground" role="status">
-            {copy.writeBusy}
-          </span>
-        ) : null}
+        <button
+          type="button"
+          aria-label={editable ? row.name : `${row.name}: ${copy.foreignHint(row.sourceProvider)}`}
+          onClick={onOpen}
+          className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {main}
+        </button>
 
         <Switch
           checked={row.enabled}
-          disabled={disabled}
           onCheckedChange={onToggle}
           ariaLabel={row.enabled ? copy.toggleOff(row.name) : copy.toggleOn(row.name)}
         />
       </div>
-
-      {row.error === null ? null : (
-        <p
-          role="alert"
-          className="flex items-start gap-1.5 px-5 pb-[15px] text-xs leading-[18px] text-destructive"
-        >
-          <TriangleAlert className="mt-px size-3.5 flex-none" aria-hidden="true" />
-          <span className="min-w-0">{row.error}</span>
-        </p>
-      )}
 
       {failure === null ? null : (
         <p
@@ -230,11 +218,14 @@ function ServerRow({
 
 export default function McpSection() {
   const copy = useCopy(MCP_COPY)
-  const workspaceId = useStoreSelector(workspaceStore, selectActiveWorkspaceId)
+  const { workspaceId, target, setTarget } = useWorkspaceScope()
   const { status, error, value: view } = useResourceState(mcpResource)
 
-  /** The scope the list shows, and the term the search narrows it by. */
-  const [scope, setScope] = useState('all')
+  /** The search term; the list itself follows the workspace picker's scope. */
+  /** The scope the rows were drawn in before the pick; while the new read runs they keep it. */
+  const [listTarget, setListTarget] = useState(target)
+  /** A picker change is reading the new directory; the old rows keep their own scope meanwhile. */
+  const [switching, setSwitching] = useState(false)
   const [query, setQuery] = useState('')
   /** The list is paged the way the provider list is: a long catalogue is not one scrolling card. */
   const [page, setPage] = useState(1)
@@ -251,6 +242,27 @@ export default function McpSection() {
     void readMcp(workspaceId)
   }, [workspaceId])
 
+  // The rail's active workspace is the default pick: when it moves, the page follows it through
+  // the same held rows as an explicit pick.
+  useEffect(() => {
+    if (target !== listTarget) setSwitching(true)
+  }, [target, listTarget])
+
+  // The rows on screen are the previous directory's until this read answers; filtering them by the
+  // new scope would empty the list and change the page height for a frame.
+  useEffect(() => {
+    if (!switching) return
+    let live = true
+    void readMcp(workspaceId).finally(() => {
+      if (!live) return
+      setListTarget(target)
+      setSwitching(false)
+    })
+    return () => {
+      live = false
+    }
+  }, [switching, target, workspaceId])
+
   const refresh = useCallback(() => {
     void readMcp(workspaceId, true)
   }, [workspaceId])
@@ -266,7 +278,7 @@ export default function McpSection() {
   /** Turn one switch. The answer is the engine's own view, so a refusal keeps the page as it was. */
   const toggle = useCallback(
     async (name: string, next: boolean) => {
-      if (busyName !== '') return
+      if (busyName !== '' || switching) return
       setBusyName(name)
       setFailures((current) => {
         if (current[name] === undefined) return current
@@ -278,7 +290,7 @@ export default function McpSection() {
       if (failure !== null) setFailures((current) => ({ ...current, [name]: failure }))
       setBusyName('')
     },
-    [busyName, workspaceId],
+    [busyName, switching, workspaceId],
   )
 
   /** Write one definition. Only a write that landed closes the editor; a refusal stays on screen. */
@@ -319,22 +331,38 @@ export default function McpSection() {
     [definitionBusy, workspaceId],
   )
 
-  const openEditor = useCallback((row: EngineMcpServerRow | null, copied: boolean) => {
-    // One surface at a time: opening the editor closes the import panel it may have been started from.
-    setImportOpen(false)
-    setDefinitionFailure(null)
-    setEditor({ row, copied })
-  }, [])
-
   const closeEditor = useCallback(() => {
     setEditor(null)
     setDefinitionFailure(null)
   }, [])
 
   const servers = view === null ? NO_SERVERS : view.servers
+  const openEditor = useCallback(
+    (row: EngineMcpServerRow | null, copied: boolean) => {
+      // The rows still describe the old directory while a switch read is in flight. Opening an
+      // editor then would prefill from them but write under the new workspace; refuse all entries.
+      if (switching) return
+      // One surface at a time: opening the editor closes the import panel it may have been started from.
+      setImportOpen(false)
+      setDefinitionFailure(null)
+      const subject =
+        copied && row !== null
+          ? { ...row, name: copyName(row.name, servers.map((server) => server.name)) }
+          : row
+      setEditor({ row: subject, copied })
+    },
+    [servers, switching],
+  )
   const problems = view === null ? NO_PROBLEMS : view.errors
   const term = query.trim().toLowerCase()
-  const scoped = servers.filter((row) => scope === 'all' || row.level === scope)
+  // The machine-wide scope lists no workspace's project definitions; the host may still discover
+  // them from its default directory, so they are dropped here rather than shown under `用户`.
+  // The picker is the scope: the machine's user-level definitions, or the chosen workspace's
+  // project definitions. A user-level server is active everywhere, but showing it under a
+  // workspace would make two different workspaces look identical.
+  const scoped = servers.filter((row) =>
+    listTarget === 'user' ? row.level !== 'project' : row.level === 'project',
+  )
   const visible = scoped.filter(
     (row) =>
       term.length === 0 ||
@@ -354,6 +382,22 @@ export default function McpSection() {
         ? 'new'
         : `${editor.copied ? 'copy' : 'edit'}:${editor.row.name}`
 
+  if (editor !== null) {
+    return (
+      <McpServerEditor
+        key={editorKey}
+        subject={editor.row}
+        copied={editor.copied}
+        busy={definitionBusy}
+        failure={definitionFailure}
+        onSave={(payload) => void saveDefinition(payload)}
+        onRemove={(payload) => void removeDefinition(payload)}
+        onCancel={closeEditor}
+        defaultScope={listTarget === 'user' ? 'user' : 'project'}
+      />
+    )
+  }
+
   return (
     <>
       {view === null || error !== null ? (
@@ -371,24 +415,13 @@ export default function McpSection() {
       {view === null ? null : (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="w-[128px]">
-              <Select
-                value={scope}
-                onValueChange={(next) => {
-                  setScope(next)
-                  setPage(1)
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{copy.scopeAll}</SelectItem>
-                  <SelectItem value="user">{copy.scopeUser}</SelectItem>
-                  <SelectItem value="project">{copy.scopeProject}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <WorkspaceScopeSelect
+              value={target}
+              onChange={(next) => {
+                setSwitching(true)
+                setTarget(next)
+              }}
+            />
             <span className="h-5 w-px bg-border" aria-hidden="true" />
             <span className="text-[13px] leading-5 text-muted-foreground">
               {copy.mcpCount(scoped.length)}
@@ -453,11 +486,9 @@ export default function McpSection() {
                     key={row.name}
                     row={row}
                     live={view.live}
-                    busy={busyName === row.name}
-                    disabled={busyName !== ''}
                     failure={failures[row.name] ?? null}
                     onToggle={(next) => void toggle(row.name, next)}
-                    onOpen={() => openEditor(row, false)}
+                    onOpen={() => openEditor(row, !owned(row))}
                   />
                 ))}
               </SettingsCard>
@@ -537,19 +568,6 @@ export default function McpSection() {
             onClose={() => setImportOpen(false)}
             onImported={refresh}
           />
-
-          {editor === null ? null : (
-            <McpServerEditor
-              key={editorKey}
-              subject={editor.row}
-              copied={editor.copied}
-              busy={definitionBusy}
-              failure={definitionFailure}
-              onSave={(payload) => void saveDefinition(payload)}
-              onRemove={(payload) => void removeDefinition(payload)}
-              onCancel={closeEditor}
-            />
-          )}
         </>
       )}
     </>

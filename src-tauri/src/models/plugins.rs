@@ -673,6 +673,9 @@ pub(crate) struct EngineMarketplaceRow {
     /// What the registry stores as the source: `owner/repo`, or the URL it was added by.
     #[serde(default)]
     pub(crate) source_uri: String,
+    /// Host-derived: false when a local source's directory no longer exists.
+    #[serde(default)]
+    pub(crate) available: Option<bool>,
 }
 
 /// `marketplaces_list`, and the answer to every marketplace write: the whole registry after the
@@ -730,21 +733,6 @@ pub(crate) struct EngineMarketplacePluginRow {
 pub(crate) struct EngineMarketplacePluginsView {
     #[serde(default)]
     pub(crate) plugins: Vec<EngineMarketplacePluginRow>,
-}
-
-/// `engine_marketplaces_refresh`: the registry as it stands after a refresh that may have been
-/// throttled.
-///
-/// `throttled` is the honest half of the answer: a refresh skipped because the last *successful* one
-/// is recent answers with the registry this process already has and says so, rather than reporting a
-/// refresh that did not happen. The rule and its window live in `state::AppState`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MarketplacesRefreshView {
-    #[serde(default)]
-    pub(crate) marketplaces: Vec<EngineMarketplaceRow>,
-    #[serde(default)]
-    pub(crate) throttled: bool,
 }
 
 // ---- one package file, read before it is installed ----

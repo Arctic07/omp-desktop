@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import {
   CircleArrowUp,
   Download,
@@ -25,8 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/motion/select'
+import { SkeletonBar } from '@/components/motion/skeleton-bar'
 import { Switch } from '@/components/motion/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/motion/tabs'
+import { WorkspaceScopeSelect } from '@/settings/WorkspaceScopeSelect'
+import type { WorkspaceScopeTarget } from '@/settings/use-workspace-scope'
 import { inspectPluginPackageFile, type TrackedPluginTask } from '@/state/plugins-store'
 import { SettingsBadge, SettingsCard, SettingsField, SettingsGroup, SettingsNotice } from '@/settings/parts'
 import type { PluginsCopy } from '@/settings/sections/plugins/copy'
@@ -36,6 +39,7 @@ import {
   type PluginEntry,
   type PluginScope,
 } from '@/settings/sections/plugins/contract'
+import { PluginListSkeleton } from '@/settings/sections/plugins/PluginListSkeleton'
 import {
   formatMarketplaceSource,
   formatPluginSource,
@@ -49,6 +53,29 @@ import {
 
 /** The one source string a longer value than this cannot be; the host refuses it too. */
 const SOURCE_MAX_LENGTH = 512
+
+/** The toolbar's add control: its own state is the panel's open flag, not the write lock. */
+const AddButton = memo(function AddButton({
+  open,
+  label,
+  onToggle,
+}: {
+  open: boolean
+  label: string
+  onToggle: () => void
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      <Plus size={14} aria-hidden="true" />
+      {label}
+    </Button>
+  )
+})
 
 /**
  * The installed list: the scope it is showing, one search field, the actions the engine offers over
@@ -65,9 +92,14 @@ export function PluginListView({
   entries,
   updateCount,
   checking,
+  refreshing,
+  reloading,
+  workspaceTarget,
+  listTarget,
+  onWorkspaceTarget,
   tasks,
   onStopTask,
-  onOpenStore,
+  onOpenMarket,
   onOpenDetail,
 }: {
   copy: PluginsCopy
@@ -80,20 +112,34 @@ export function PluginListView({
    */
   updateCount: number
   checking: boolean
+  /** The installation/grants read is in flight; the refresh control draws its wait. */
+  refreshing: boolean
+  /** The plugin-state reload is in flight; the same skeleton keeps the list geometry. */
+  reloading: boolean
+  /** The workspace whose registry the list shows; `user` is the machine-wide scope. */
+  workspaceTarget: WorkspaceScopeTarget
+  /** The scope the rows are drawn in; it lags the picker until a switch's reads answer. */
+  listTarget: WorkspaceScopeTarget
+  onWorkspaceTarget: (target: WorkspaceScopeTarget) => void
   /** The long installs this process is running, newest first. */
   tasks: readonly TrackedPluginTask[]
   onStopTask: (taskId: string) => void
-  onOpenStore: () => void
+  /** Leave for the plugin marketplace, where the catalogues are browsed and installed from. */
+  onOpenMarket: () => void
   onOpenDetail: (entry: PluginEntry) => void
 }) {
-  const [scope, setScope] = useState<PluginScope>('user')
+  /** The search term; the list itself follows the workspace picker's scope. */
   const [query, setQuery] = useState('')
   /** Whether the install panel is showing; the header's `添加` toggles it. */
   const [installOpen, setInstallOpen] = useState(false)
+  const toggleInstall = useCallback(() => setInstallOpen((open) => !open), [])
   /** Which of the four routes the panel is on: a source string, a package file, a URL, a template. */
   const [route, setRoute] = useState<'source' | 'file' | 'url' | 'template'>('source')
   const [source, setSource] = useState('')
-  const [installScope, setInstallScope] = useState<PluginScope>('user')
+  // A new installation lands where the reader is looking unless they choose otherwise.
+  const [installScope, setInstallScope] = useState<PluginScope>(
+    workspaceTarget === 'user' ? 'user' : 'project',
+  )
   const [sourceError, setSourceError] = useState('')
   /** The picked package, and what the host read out of it before anything was installed. */
   const [packagePath, setPackagePath] = useState('')
@@ -111,14 +157,16 @@ export function PluginListView({
   const [scaffoldError, setScaffoldError] = useState<ApiError | null>(null)
 
   const busy = actions.busyKey !== ''
+  /** The picker is the scope: the machine's user registry, or the chosen workspace's project one. */
+  const effectiveScope: PluginScope = listTarget === 'user' ? 'user' : 'project'
   const installing =
     actions.busyKey === 'install' ||
     actions.busyKey === 'install-file' ||
     actions.busyKey === 'install-url'
   const scaffolding = actions.busyKey === 'scaffold'
-  const scoped = entries.filter((entry) => entry.row.scope === scope)
-  const visible = entriesInScope(entries, scope, query)
+  const visible = entriesInScope(entries, effectiveScope, query)
   const searching = query.trim() !== ''
+  const listLoading = refreshing || checking || reloading
 
   async function submitInstall(): Promise<void> {
     const trimmed = source.trim()
@@ -217,19 +265,15 @@ export function PluginListView({
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
-        <Tabs
-          value={scope}
-          onValueChange={(next) => setScope(next === 'project' ? 'project' : 'user')}
-          variant="segment"
-        >
-          <TabsList>
-            <TabsTrigger value="user">{copy.scopeUser}</TabsTrigger>
-            <TabsTrigger value="project">{copy.scopeWorkspace}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <span className="text-[13px] leading-5 text-muted-foreground">
-          {copy.installedTitle} · {scoped.length}
-        </span>
+        <WorkspaceScopeSelect
+          value={workspaceTarget}
+          onChange={(next) => {
+            // The install form follows the picker until the reader changes its own scope; a later
+            // picker change resets it again, so a workspace install cannot land in the user registry.
+            setInstallScope(next === 'user' ? 'user' : 'project')
+            onWorkspaceTarget(next)
+          }}
+        />
         <div className="ml-auto w-[220px]">
           <Input
             value={query}
@@ -242,50 +286,59 @@ export function PluginListView({
         </div>
       </div>
 
-      <SettingsGroup title={copy.installedTitle}>
+      <SettingsGroup>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="secondary"
-            disabled={busy}
             onClick={actions.refresh}
             aria-label={copy.refresh}
           >
-            <RefreshCw size={14} aria-hidden="true" />
+            {refreshing ? (
+              <SkeletonBar className="size-3.5 rounded-full" />
+            ) : (
+              <RefreshCw size={14} aria-hidden="true" />
+            )}
             {copy.refresh}
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            disabled={busy || checking}
             onClick={actions.checkUpdates}
           >
-            <Download size={14} aria-hidden="true" />
-            {checking ? copy.updateChecking : copy.updateCheckAction}
+            {checking ? (
+              <SkeletonBar className="size-3.5 rounded-full" />
+            ) : (
+              <Download size={14} aria-hidden="true" />
+            )}
+            {copy.updateCheckAction}
           </Button>
           {updateCount > 0 ? (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={actions.upgradeAll}>
+            <Button size="sm" variant="secondary" onClick={actions.upgradeAll}>
               <CircleArrowUp size={14} aria-hidden="true" />
               {copy.upgradeAllAction}
             </Button>
           ) : null}
-          <Button size="sm" variant="secondary" disabled={busy} onClick={actions.reload}>
-            <Plug size={14} aria-hidden="true" />
-            {copy.reloadAction}
-          </Button>
           <Button
             size="sm"
             variant="secondary"
-            disabled={busy}
-            aria-expanded={installOpen}
-            onClick={() => setInstallOpen((open) => !open)}
+            onClick={actions.reload}
           >
-            <Plus size={14} aria-hidden="true" />
-            {copy.addAction}
+            {reloading ? (
+              <SkeletonBar className="size-3.5 rounded-full" />
+            ) : (
+              <Plug size={14} aria-hidden="true" />
+            )}
+            {copy.reloadAction}
           </Button>
-          <Button size="sm" variant="ghost" onClick={onOpenStore}>
+          <AddButton
+            open={installOpen}
+            label={copy.addAction}
+            onToggle={toggleInstall}
+          />
+          <Button size="sm" variant="ghost" onClick={onOpenMarket}>
             <Store size={14} aria-hidden="true" />
-            {copy.browseAction}
+            {copy.marketAction}
           </Button>
         </div>
 
@@ -564,38 +617,52 @@ export function PluginListView({
           </SettingsCard>
         )}
 
-        {visible.length > 0 ? (
-          <SettingsCard>
-            {visible.map((entry) => (
-              <PluginRowItem
-                key={entry.key}
-                entry={entry}
-                copy={copy}
-                busy={busy}
-                failure={actions.failures[entry.key] ?? null}
-                onOpen={() => onOpenDetail(entry)}
-                onToggle={() => actions.toggle(entry.row)}
-              />
-            ))}
-          </SettingsCard>
-        ) : searching ? (
-          <p className="m-3.5 rounded-[10px] border border-dashed border-border p-3.5 text-center text-xs leading-[18px] text-muted-foreground">
-            {copy.searchEmpty}
-          </p>
-        ) : (
-          <div className="flex flex-col items-center gap-1.5 rounded-2xl border border-dashed border-border px-5 py-8 text-center">
-            <strong className="text-sm leading-5 font-medium text-foreground">
-              {copy.installedEmptyTitle}
-            </strong>
-            <p className="text-[13px] leading-[19px] text-muted-foreground">
-              {copy.installedEmptyDescription}
-            </p>
-            <Button size="sm" className="mt-2" onClick={onOpenStore}>
-              <Plus size={14} aria-hidden="true" />
-              {copy.browseAction}
-            </Button>
+        <div className="relative">
+          <div
+            className={listLoading ? 'invisible' : undefined}
+            aria-hidden={listLoading || undefined}
+          >
+            {visible.length > 0 ? (
+              <SettingsCard>
+                {visible.map((entry) => (
+                  <PluginRowItem
+                    key={entry.key}
+                    entry={entry}
+                    copy={copy}
+                    failure={actions.failures[entry.key] ?? null}
+                    onOpen={() => onOpenDetail(entry)}
+                    onToggle={() => actions.toggle(entry.row)}
+                  />
+                ))}
+              </SettingsCard>
+            ) : searching ? (
+              <p className="m-3.5 rounded-[10px] border border-dashed border-border p-3.5 text-center text-xs leading-[18px] text-muted-foreground">
+                {copy.searchEmpty}
+              </p>
+            ) : (
+              <div className="flex flex-col items-center gap-1.5 rounded-2xl border border-dashed border-border px-5 py-8 text-center">
+                <strong className="text-sm leading-5 font-medium text-foreground">
+                  {copy.installedEmptyTitle}
+                </strong>
+                <p className="text-[13px] leading-[19px] text-muted-foreground">
+                  {copy.installedEmptyDescription}
+                </p>
+                <Button size="sm" className="mt-2" onClick={onOpenMarket}>
+                  <Plus size={14} aria-hidden="true" />
+                  {copy.marketAction}
+                </Button>
+              </div>
+            )}
           </div>
-        )}
+          {listLoading ? (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              <PluginListSkeleton
+                label={copy.loading}
+                rows={Math.max(1, visible.length)}
+              />
+            </div>
+          ) : null}
+        </div>
       </SettingsGroup>
     </>
   )
@@ -610,14 +677,12 @@ export function PluginListView({
 function PluginRowItem({
   entry,
   copy,
-  busy,
   failure,
   onOpen,
   onToggle,
 }: {
   entry: PluginEntry
   copy: PluginsCopy
-  busy: boolean
   failure: { code: string; message: string } | null
   onOpen: () => void
   onToggle: () => void
@@ -650,11 +715,6 @@ function PluginRowItem({
                 {pluginUpdateBadgeLabel(entry.update, copy)}
               </AnimatedBadge>
             )}
-            {needsConsent ? (
-              <AnimatedBadge status="warning" size="sm" showIcon={false} animated={false}>
-                {copy.consentRequiredBadge}
-              </AnimatedBadge>
-            ) : null}
             {row.shadowedBy === null ? null : (
               <span title={copy.shadowedHint}>
                 <AnimatedBadge status="neutral" size="sm" showIcon={false} animated={false}>
@@ -687,8 +747,10 @@ function PluginRowItem({
             checked={row.enabled}
             // A built-in is the surface the build promises; its switch is not the reader's to turn
             // (`PLUGIN_BUILTIN_PROTECTED` answers a write that arrives anyway). A row the host
-            // reported without an engine handle has no installation any write could name.
-            disabled={busy || row.builtin || !addressable}
+            // reported without an engine handle has no installation any write could name. A write
+            // in flight is refused by `runWrite`; dimming every switch for it made the whole list
+            // flicker and showed a not-allowed cursor, so the control keeps its normal appearance.
+            disabled={row.builtin || !addressable}
             onCheckedChange={onToggle}
             ariaLabel={
               row.builtin

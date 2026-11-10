@@ -194,14 +194,25 @@ export function PluginDetailView({
           </AnimatedBadge>
         )}
         {row.consent.required ? (
-          <AnimatedBadge
-            status={entry.granted ? 'success' : 'warning'}
-            size="sm"
-            showIcon={false}
-            animated={false}
-          >
-            {entry.granted ? copy.consentGrantedBadge : copy.consentRequiredBadge}
-          </AnimatedBadge>
+          entry.granted ? (
+            <AnimatedBadge
+              status="success"
+              size="sm"
+              showIcon={false}
+              animated={false}
+            >
+              {copy.consentGrantedBadge}
+            </AnimatedBadge>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || !addressable}
+              onClick={() => actions.requestConsent(row)}
+            >
+              {copy.consentRequiredAction}
+            </Button>
+          )
         ) : null}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">

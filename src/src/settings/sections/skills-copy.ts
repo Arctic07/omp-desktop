@@ -42,11 +42,7 @@ export interface SkillsCopy {
   writeFailed: string
   writeBusy: string
 
-  /** The picker beside the count: which level of skill the list shows. */
-  scopeLabel: string
-  scopeAll: string
-  scopeUser: string
-  scopeWorkspace: string
+  /** The count beside the toolbar: how many skills the picker's scope holds. */
   /** `技能 14` — a label and the number the current scope and query select. */
   countLabel: (count: number) => string
   searchLabel: string
@@ -60,8 +56,11 @@ export interface SkillsCopy {
 
   installedEmptyTitle: string
   installedEmptyDescription: string
+  /** The one authoring entry; its destination is the picker's scope. */
   newSkill: string
   newAction: string
+  newProjectSkillPrompt: string
+  newUserSkillPrompt: string
   importAction: string
 
   /** The engine found nothing from another agent to import, so no task was started. */
@@ -145,10 +144,6 @@ const en: SkillsCopy = {
   writeFailed: 'The host refused this change.',
   writeBusy: 'Saving…',
 
-  scopeLabel: 'Scope',
-  scopeAll: 'All',
-  scopeUser: 'User',
-  scopeWorkspace: 'Workspace',
   countLabel: (count) => `Skills ${count}`,
   searchLabel: 'Search skills',
   searchPlaceholder: 'Search skills...',
@@ -162,6 +157,8 @@ const en: SkillsCopy = {
   installedEmptyDescription: 'Create a skill or import one from an external agent.',
   newSkill: 'New skill',
   newAction: 'New',
+  newProjectSkillPrompt: '/skill:skill-creator Create a project-level skill in this workspace: ',
+  newUserSkillPrompt: '/skill:skill-creator Create a user-level skill: ',
   importAction: 'Import',
 
   importEmpty: 'The engine found no skills from other agents on this machine.',
@@ -241,10 +238,6 @@ const zh: SkillsCopy = {
   writeFailed: '宿主拒绝了这次改动。',
   writeBusy: '保存中…',
 
-  scopeLabel: '作用域',
-  scopeAll: '全部',
-  scopeUser: '用户',
-  scopeWorkspace: '工作区',
   countLabel: (count) => `技能 ${count}`,
   searchLabel: '搜索技能',
   searchPlaceholder: '搜索技能...',
@@ -258,6 +251,8 @@ const zh: SkillsCopy = {
   installedEmptyDescription: '新建技能，或从外部 Agent 导入已有技能。',
   newSkill: '新建技能',
   newAction: '新建',
+  newProjectSkillPrompt: '/skill:skill-creator 为当前工作区创建一个项目级技能：',
+  newUserSkillPrompt: '/skill:skill-creator 创建一个用户级技能：',
   importAction: '导入',
 
   importEmpty: '引擎没有在本机其它 Agent 里发现可导入的技能。',

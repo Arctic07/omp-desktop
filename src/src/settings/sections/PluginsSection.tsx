@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { toApiError, type ApiError } from '@/api/client'
 import type { PluginTemplate } from '@/api/plugins'
@@ -9,16 +9,16 @@ import {
   checkUpdates,
   clearUpdates,
   engineInfoResource,
-  grantsResource,
   isGranted,
   pluginKey,
   pluginTaskStore,
-  pluginsResource,
-  readGrants,
-  readPlugins,
+  readSettingsGrants,
+  readSettingsPlugins,
   reloadPluginState,
   resetPluginSetting,
   scaffoldPluginTemplate,
+  settingsGrantsResource,
+  settingsPluginsResource,
   stopPluginTask,
   updatesStore,
   writeGrant,
@@ -32,9 +32,10 @@ import {
   writePluginUpgrade,
 } from '@/state/plugins-store'
 import { useResourceState } from '@/state/resource'
-import { useStore, useStoreSelector } from '@/state/store'
-import { workspaceStore } from '@/state/workspace-store'
+import { useStore } from '@/state/store'
+import { useWorkspaceScope, type WorkspaceScopeTarget } from '@/settings/use-workspace-scope'
 import { SettingsBadge, SettingsLoadState, SettingsNotice } from '@/settings/parts'
+import type { SettingsSectionProps } from '@/settings/SettingsPage'
 import { COPY } from '@/settings/sections/plugins/copy'
 import {
   buildEntries,
@@ -46,19 +47,20 @@ import {
   type PluginSettingValue,
 } from '@/settings/sections/plugins/contract'
 import {
-  PluginConsentCard,
   PluginSwitchCard,
   PluginUninstallCard,
 } from '@/settings/sections/plugins/PluginCards'
+import { PluginConsentDialog } from '@/settings/sections/plugins/PluginConsentDialog'
 import { PluginDetailView } from '@/settings/sections/plugins/PluginDetailView'
 import { PluginListView } from '@/settings/sections/plugins/PluginListView'
-import { PluginStoreView } from '@/settings/sections/plugins/PluginStoreView'
 import { pluginDisplayName } from '@/state/plugin-text'
 import { pluginFailureView, pluginTargetId, pluginUpdateConfirmation } from '@/settings/sections/plugins/rows'
 
 /**
- * The plugins page: the installations this workspace sees, one plugin in full, and the store the
- * marketplaces publish into.
+ * The plugins page: the installations this workspace sees, and one plugin in full.
+ *
+ * Browsing catalogues is not here: the marketplace is its own surface (`market/PluginMarketPage`),
+ * and this page's list opens it instead of switching modes.
  *
  * Nothing here decides a plugin's state. The engine owns the install, the enable flag and the
  * settings, the host reports all of them, and this application records only its own consent grant —
@@ -80,31 +82,50 @@ import { pluginFailureView, pluginTargetId, pluginUpdateConfirmation } from '@/s
  * engine's own report are process-wide, so they are read once.
  */
 
-/** The active workspace: the installation list and every consent grant belong to it. */
-const selectActiveWorkspaceId = (state: { activeId: number | null }): number | null => state.activeId
-
 /** Stable empties, so a resource with nothing in it does not rebuild the page every render. */
 const NO_ROWS: readonly PluginRow[] = []
 const NO_GRANTS: readonly PluginGrantRow[] = []
+
+/** A read this fast would otherwise flash one skeleton frame and read as a glitch, not a wait. */
+const SKELETON_MIN_MS = 450
+
+function waitForSkeleton(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
 
 /** One installation's own write, as the page's busy key spells it. */
 function pluginWriteKey(entry: Pick<PluginEntry, 'key'>): string {
   return `plugin:${entry.key}`
 }
 
-export default function PluginsSection() {
+export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps) {
   const copy = useCopy(COPY)
   const { language } = useLanguage()
-  const workspaceId = useStoreSelector(workspaceStore, selectActiveWorkspaceId)
+  const { workspaceId, target, setTarget } = useWorkspaceScope()
 
-  const pluginsState = useResourceState(pluginsResource)
-  const grantsState = useResourceState(grantsResource)
+  const pluginsState = useResourceState(settingsPluginsResource)
+  const grantsState = useResourceState(settingsGrantsResource)
   const updatesState = useStore(updatesStore)
   const tasks = useStore(pluginTaskStore)
   const configState = useResourceState(pluginSettingsResource)
   const engineInfoState = useResourceState(engineInfoResource)
 
   const [busyKey, setBusyKey] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [reloading, setReloading] = useState(false)
+  /** A workspace switch is reading the new registry; the old list stays as the skeleton's box. */
+  const [switching, setSwitching] = useState(false)
+  /**
+   * The scope the rows are drawn in. It changes in the same commit that ends the switch, so the
+   * old rows are never filtered by the new scope (which would empty the list under the skeleton and
+   * collapse the page for a frame).
+   */
+  const [listTarget, setListTarget] = useState<WorkspaceScopeTarget>(target)
+  /** The picker's last value: only a change starts a switch, never the first mount. */
+  const lastTarget = useRef<WorkspaceScopeTarget>(target)
   const [failures, setFailures] = useState<Readonly<Record<string, ApiError>>>({})
   const [notice, setNotice] = useState<PluginNotice | null>(null)
   /** The installation whose first enable is waiting for a confirmation, keyed by `pluginKey`. */
@@ -115,27 +136,39 @@ export default function PluginsSection() {
   const [switchKey, setSwitchKey] = useState('')
   /** The installation whose detail view is open; null while the list is. */
   const [selected, setSelected] = useState<{ id: string; scope: string } | null>(null)
-  const [storeOpen, setStoreOpen] = useState(false)
 
-  // The list and the grants both belong to the workspace, and the engine's report does not.
   useEffect(() => {
-    // A keyed resource keeps the last key's answer while the next read runs, and the page's own
-    // cards name one installation. Neither may survive the switch: the rows would be the previous
-    // workspace's (every button would speak about an installation that is not there), and an open
-    // consent or uninstall card would act on an installation of the workspace just left. Clearing
-    // the resources first is what makes the new read the first answer again.
-    pluginsResource.reset()
-    grantsResource.reset()
-    setSelected(null)
-    setConsentKey('')
-    setUninstallKey('')
-    setSwitchKey('')
-    setFailures({})
-    setNotice(null)
-    void readPlugins(workspaceId)
-    void readGrants(workspaceId)
+    const changed = lastTarget.current !== target
+    lastTarget.current = target
+    if (changed) {
+      // The page's own cards name one installation, so they must not survive the switch: an open
+      // consent or uninstall card would act on an installation of the workspace just left. The
+      // resources are not reset, though - a reset would blank the list and collapse the page for a
+      // frame, which is the flash a switch must not produce. The previous rows stay in the DOM under
+      // the list's skeleton until both reads answer, and the keyed resource replaces them then.
+      setSelected(null)
+      setConsentKey('')
+      setUninstallKey('')
+      setSwitchKey('')
+      setFailures({})
+      setNotice(null)
+      setSwitching(true)
+    }
+    const started = Date.now()
+    let live = true
+    void Promise.all([readSettingsPlugins(workspaceId), readSettingsGrants(workspaceId)]).finally(async () => {
+      if (!changed) return
+      const remaining = SKELETON_MIN_MS - (Date.now() - started)
+      if (remaining > 0) await waitForSkeleton(remaining)
+      if (!live) return
+      setListTarget(target)
+      setSwitching(false)
+    })
     void engineInfoResource.read()
-  }, [workspaceId])
+    return () => {
+      live = false
+    }
+  }, [target, workspaceId])
 
   // One plugin's settings are read when its detail view opens, and belong to the same workspace.
   useEffect(() => {
@@ -214,10 +247,31 @@ export default function PluginsSection() {
     })
   }, [copy])
 
-  const refresh = useCallback(() => {
-    void readPlugins(workspaceId, true)
-    void readGrants(workspaceId, true)
-  }, [workspaceId])
+  const refresh = useCallback(async () => {
+    if (busyKey !== '' || refreshing) return
+    setRefreshing(true)
+    const started = Date.now()
+    await Promise.all([readSettingsPlugins(workspaceId, true), readSettingsGrants(workspaceId, true)])
+    const remaining = SKELETON_MIN_MS - (Date.now() - started)
+    if (remaining > 0) await waitForSkeleton(remaining)
+    setRefreshing(false)
+  }, [busyKey, refreshing, workspaceId])
+
+  /**
+   * Open the consent dialog and drop that row's stale refusal, so the modal never opens on an error
+   * the reader has already seen behind it.
+   */
+  const openConsent = useCallback((row: PluginRow) => {
+    const rowKey = pluginKey(row)
+    const writeKey = `plugin:${rowKey}`
+    setFailures((current) => {
+      if (current[writeKey] === undefined) return current
+      const next = { ...current }
+      delete next[writeKey]
+      return next
+    })
+    setConsentKey(rowKey)
+  }, [])
 
   /**
    * The switch, which is the page's decision: a plugin whose manifest says it brings code is not
@@ -227,6 +281,7 @@ export default function PluginsSection() {
    */
   const toggle = useCallback(
     (row: PluginRow) => {
+      if (busyKey !== '') return
       const targetId = pluginTargetId(row)
       if (targetId === null) {
         reportUnaddressable()
@@ -234,14 +289,14 @@ export default function PluginsSection() {
       }
       const granted = isGranted(grants, row.id, row.scope)
       if (!row.enabled && row.consent.required && !granted) {
-        setConsentKey(pluginKey(row))
+        openConsent(row)
         return
       }
       void runWrite(`plugin:${pluginKey(row)}`, () =>
         writePluginEnabled(workspaceId, targetId, !row.enabled, row.scope),
       )
     },
-    [grants, reportUnaddressable, runWrite, workspaceId],
+    [busyKey, grants, openConsent, reportUnaddressable, runWrite, workspaceId],
   )
 
   /** The grant first, for this installation's own scope: an id in both scopes is two decisions. */
@@ -256,6 +311,12 @@ export default function PluginsSection() {
     }
     const key = pluginWriteKey(entry)
     setBusyKey(key)
+    setFailures((current) => {
+      if (current[key] === undefined) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
     const grantError = await writeGrant(workspaceId, entry.row.id, true, entry.row.scope)
     if (grantError !== null) {
       setFailures((current) => ({ ...current, [key]: grantError }))
@@ -399,37 +460,55 @@ export default function PluginsSection() {
   }, [copy, report, runWrite, workspaceId])
 
   const runCheckUpdates = useCallback(async () => {
-    await checkUpdates(workspaceId)
-    const answer = updatesStore.get()
-    if (answer.status === 'error') {
-      if (answer.error !== null) reportRefusal(answer.error)
-      return
+    if (busyKey !== '' || checking) return
+    setChecking(true)
+    const started = Date.now()
+    try {
+      await checkUpdates(workspaceId)
+      const answer = updatesStore.get()
+      const remaining = SKELETON_MIN_MS - (Date.now() - started)
+      if (remaining > 0) await waitForSkeleton(remaining)
+      if (answer.status === 'error') {
+        if (answer.error !== null) reportRefusal(answer.error)
+        return
+      }
+      // A success line here would insert a new row above the list and push the page down, which
+      // is exactly the height change the refresh/check controls must not cause. The update count
+      // and the update-all control below already state the result. Failures still report below.
+      setNotice(null)
+    } finally {
+      setChecking(false)
     }
-    const pending = pendingUpdates(
-      answer.updates,
-      pluginsResource.store.get().value?.plugins ?? NO_ROWS,
-    )
-    report(pending.length === 0 ? copy.updatesNone : copy.updatesFound(pending.length))
-  }, [copy, report, reportRefusal, workspaceId])
+  }, [busyKey, checking, copy, report, reportRefusal, workspaceId])
 
   const reload = useCallback(async () => {
-    const { result, error } = await reloadPluginState(workspaceId)
-    if (result === null) {
-      if (error !== null) reportRefusal(error)
-      return
+    if (busyKey !== '' || reloading) return
+    setReloading(true)
+    const started = Date.now()
+    try {
+      const { result, error } = await reloadPluginState(workspaceId)
+      if (result === null) {
+        if (error !== null) reportRefusal(error)
+        return
+      }
+      if (result.reloaded) {
+        // The skeleton is the result line for a clean reload; a success sentence would push the
+        // whole page down after the wait. Only a partial failure needs a notice.
+        return
+      }
+      // The host reloaded what it could and named the sessions it could not; the page states it.
+      setNotice({
+        title: copy.reloadAction,
+        text: copy.reloadFailed(result.failed),
+        code: '',
+        variant: 'warning',
+      })
+    } finally {
+      const remaining = SKELETON_MIN_MS - (Date.now() - started)
+      if (remaining > 0) await waitForSkeleton(remaining)
+      setReloading(false)
     }
-    if (result.reloaded) {
-      report(copy.reloadDone(result.sessions))
-      return
-    }
-    // The host reloaded what it could and named the sessions it could not; the page states it.
-    setNotice({
-      title: copy.reloadAction,
-      text: copy.reloadFailed(result.failed),
-      code: '',
-      variant: 'warning',
-    })
-  }, [copy, report, reportRefusal, workspaceId])
+  }, [busyKey, copy, reloading, reportRefusal, workspaceId])
 
   /**
    * One install, whichever route asked for it.
@@ -446,7 +525,7 @@ export default function PluginsSection() {
     ): Promise<ApiError | null> => {
       if (busyKey !== '') return null
       const before = new Set(
-        (pluginsResource.store.get().value?.plugins ?? NO_ROWS).map((row) => pluginKey(row)),
+        (settingsPluginsResource.store.get().value?.plugins ?? NO_ROWS).map((row) => pluginKey(row)),
       )
       setBusyKey(key)
       setFailures((current) => {
@@ -462,7 +541,7 @@ export default function PluginsSection() {
         reportRefusal(error)
         return error
       }
-      const added = (pluginsResource.store.get().value?.plugins ?? NO_ROWS).find(
+      const added = (settingsPluginsResource.store.get().value?.plugins ?? NO_ROWS).find(
         (row) => !before.has(pluginKey(row)),
       )
       report(copy.installed(added === undefined ? fallbackName : pluginDisplayName(added, language)))
@@ -530,6 +609,7 @@ export default function PluginsSection() {
       busyKey,
       failures,
       toggle,
+      requestConsent: openConsent,
       requestUninstall: (row) => setUninstallKey(pluginKey(row)),
       upgrade,
       upgradeAll,
@@ -550,6 +630,7 @@ export default function PluginsSection() {
       installPackage,
       installSource,
       installUrl,
+      openConsent,
       scaffoldTemplate,
       refresh,
       reload,
@@ -618,15 +699,15 @@ export default function PluginsSection() {
         </SettingsNotice>
       )}
 
-      {consentEntry === null ? null : (
-        <PluginConsentCard
-          entry={consentEntry}
-          copy={copy}
-          busy={busyKey !== ''}
-          onConfirm={() => void confirmConsent()}
-          onCancel={() => setConsentKey('')}
-        />
-      )}
+      <PluginConsentDialog
+        entry={consentEntry}
+        busy={busyKey !== ''}
+        failure={
+          consentEntry === null ? null : (failures[pluginWriteKey(consentEntry)] ?? null)
+        }
+        onConfirm={() => void confirmConsent()}
+        onCancel={() => setConsentKey('')}
+      />
 
       {uninstallEntry === null ? null : (
         <PluginUninstallCard
@@ -648,22 +729,32 @@ export default function PluginsSection() {
         />
       )}
 
-      {pluginsState.value === null ? null : storeOpen ? (
-        <PluginStoreView copy={copy} entries={entries} actions={actions} onBack={() => setStoreOpen(false)} />
-      ) : selectedEntry === null ? (
+      {pluginsState.value === null ? null : selectedEntry === null ? (
         <PluginListView
           copy={copy}
           actions={actions}
           entries={entries}
           updateCount={inPlaceUpdates.length}
-          checking={updatesState.status === 'checking'}
+          checking={checking}
+          refreshing={
+            switching ||
+            refreshing ||
+            (pluginsState.value === null && pluginsState.status === 'loading')
+          }
+          reloading={reloading}
+          workspaceTarget={target}
+          listTarget={listTarget}
+          onWorkspaceTarget={(next) => {
+            setSwitching(true)
+            setTarget(next)
+          }}
           tasks={tasks}
           onStopTask={(taskId) =>
             void stopPluginTask(taskId).catch((error: unknown) =>
               reportRefusal(toApiError(error)),
             )
           }
-          onOpenStore={() => setStoreOpen(true)}
+          onOpenMarket={() => onBrowseMarket?.(target)}
           onOpenDetail={(entry) => setSelected({ id: entry.row.id, scope: entry.row.scope })}
         />
       ) : (

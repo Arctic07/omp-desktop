@@ -104,7 +104,12 @@ interface KeyedResource<K, T> {
   store: Store<ResourceState<T>>
   /** Read the answer for one key. Idempotent for the key already answered. */
   read(key: K, options?: { force?: boolean }): Promise<void>
-  adopt(value: T): void
+  /**
+   * Install a write's answer only when it belongs to the key the resource is showing. A write can
+   * outlive the reader's move to another key; applying it then would put another key's rows on
+   * screen. An omitted key keeps the old unguarded behaviour for callers that own a single subject.
+   */
+  adopt(value: T, key?: K): boolean
   reset(): void
 }
 
@@ -125,8 +130,11 @@ export function createKeyedResource<K, T>(
       target = key
       return resource.read({ force: true })
     },
-    adopt(value) {
+    adopt(value, key) {
+      if (key !== undefined && target !== undefined && !sameKey(target, key)) return false
+      if (key !== undefined) target = key
       resource.adopt(value)
+      return true
     },
     reset() {
       target = undefined

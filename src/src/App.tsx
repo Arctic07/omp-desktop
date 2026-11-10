@@ -16,7 +16,7 @@ import {
 import { activeRecord, sessionStore, setConversationCovered, startNewSession } from '@/state/session-store'
 import { pickAndAddWorkspace, workspaceStore } from '@/state/workspace-store'
 
-import { ChatAppHome } from '@/home/ChatAppHome'
+import { ChatAppHome, type Surface } from '@/home/ChatAppHome'
 import { AttachmentViewer } from '@/home/AttachmentViewer'
 import { COPY } from '@/home/homeCopy'
 import { OmpImportDialog } from '@/home/OmpImportDialog'
@@ -24,6 +24,7 @@ import { PluginNoticeStack } from '@/home/PluginNoticeStack'
 import { PluginPromptCard } from '@/home/PluginPromptCard'
 import { TitleBar } from '@/home/TitleBar'
 import { SettingsPage, type SettingsSectionId } from '@/settings/SettingsPage'
+import type { WorkspaceScopeTarget } from '@/settings/use-workspace-scope'
 import { useBlockingOverlayWhile } from '@/state/overlay-depth'
 import { useBrowserEvents } from '@/state/browser-events'
 import { useDocumentFileLinks } from '@/lib/file-links'
@@ -37,10 +38,9 @@ import { startDesktopDrop, stopDesktopDrop } from '@/state/desktop-drop'
 import { pluginsResource, readPlugins, startPluginWiring } from '@/state/plugins-store'
 import { setPluginWorkspace } from '@/api/plugins'
 import { startSessionWiring } from '@/state/session-store'
+import { prefillComposer } from '@/state/composer-prefill'
 import { startUpdateWiring } from '@/state/update-store'
 import { startStallWatch, stopStallWatch } from '@/state/session-stall'
-
-type View = 'chat' | 'settings'
 
 /**
  * Ask the desktop what the active conversation already has running, and show it.
@@ -83,7 +83,15 @@ async function reconcileCurrentSession(): Promise<void> {
 }
 
 function App() {
-  const [view, setView] = useState<View>('chat')
+  /** Which body surface is up. Settings is not one: it is an overlay above this. */
+  const [surface, setSurface] = useState<Surface>('chat')
+  /** Where the marketplace was opened from: its Back control returns there, not always to chat. */
+  const [marketOrigin, setMarketOrigin] = useState<'chat' | 'plugins'>('chat')
+  /** The scope the market opens on: `user`, or the plugin page's pick. */
+  const [marketScope, setMarketScope] = useState<WorkspaceScopeTarget>('user')
+  /** Each `openMarket` call re-applies `marketScope`, even when the page stayed mounted. */
+  const [marketOpenId, setMarketOpenId] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   /**
    * Which section the settings page opens on.
    *
@@ -94,18 +102,54 @@ function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | undefined>(undefined)
   // The settings page is a full-window blocking surface: the native browser guest must go away
   // while it is up, exactly as it does under a dialog.
-  useBlockingOverlayWhile(view === 'settings')
+  useBlockingOverlayWhile(settingsOpen)
   // It covers the conversation as well, and the conversation stays mounted under it. Nothing of it
   // is on screen, so it must not be rebuilt on the display clock: an answer still streaming is
   // folded four times a second and its reveal snapped, which is what keeps the page the reader is
   // actually scrolling at the frame rate the display can give it.
   useEffect(() => {
-    setConversationCovered(view === 'settings')
-  }, [view])
+    setConversationCovered(settingsOpen || surface === 'market')
+  }, [settingsOpen, surface])
   const openSettings = useCallback((section?: SettingsSectionId) => {
     setSettingsSection(section)
-    setView('settings')
+    setSettingsOpen(true)
   }, [])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
+  const openMarket = useCallback((origin: 'chat' | 'plugins', scope: WorkspaceScopeTarget = 'user') => {
+    setMarketOrigin(origin)
+    setMarketScope(scope)
+    setMarketOpenId((id) => id + 1)
+    setSurface('market')
+  }, [])
+  const leaveMarket = useCallback(() => {
+    if (marketOrigin === 'plugins') {
+      setSurface('chat')
+      openSettings('plugins')
+      return
+    }
+    setSurface('chat')
+  }, [marketOrigin, openSettings])
+  /**
+   * The market's 「创建插件」: the same entry the welcome screen offers.
+   *
+   * A new conversation is opened first, then the plugin-creator skill's prompt is put in the
+   * composer — never sent, because the reader finishes the sentence. The market leaves in the same
+   * turn: the prompt belongs to a conversation, not to the catalogue.
+   */
+  const createPlugin = useCallback(
+    (prompt: string) => {
+      setSurface('chat')
+      closeSettings()
+      // A hand-off needs a conversation to land in. With no workspace there is none to open, so the
+      // plugin page is the one place that still says what creating one needs.
+      if (sessionStore.get().workspaceId === null) {
+        openSettings('plugins')
+        return
+      }
+      void startNewSession().then(() => prefillComposer(prompt))
+    },
+    [closeSettings, openSettings],
+  )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const { language } = useLanguage()
 
@@ -272,6 +316,7 @@ function App() {
     let cancelled = false
     void subscribe<DesktopCommand>(DESKTOP_COMMAND_EVENT, (command) => {
       if (command === 'new-session') {
+        setSurface('chat')
         void startNewSession()
         return
       }
@@ -313,12 +358,15 @@ function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((current) => !current)}
         onOpenAbout={() => openSettings('about')}
-        onLeaveSettings={() => setView('chat')}
+        onLeaveSettings={() => {
+          setSurface('chat')
+          closeSettings()
+        }}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
-          inert={view === 'settings'}
-          aria-hidden={view === 'settings' || undefined}
+          inert={settingsOpen}
+          aria-hidden={settingsOpen || undefined}
           className="flex min-h-0 flex-1 flex-col"
         >
           {/* The whole screen is behind a boundary as well as its transcript: a failure anywhere in
@@ -330,14 +378,29 @@ function App() {
               sidebarOpen={sidebarOpen}
               onSidebarOpenChange={setSidebarOpen}
               onOpenSettings={() => openSettings()}
+              surface={surface}
+              onOpenMarket={() => openMarket('chat')}
+              onMarketBack={leaveMarket}
+              marketScope={marketScope}
+              marketOpenId={marketOpenId}
+              onOpenConversation={() => setSurface('chat')}
+              onOpenPlugins={() => openSettings('plugins')}
+              onCreatePlugin={createPlugin}
             />
           </ErrorBoundary>
         </div>
-        {view === 'settings' ? (
+        {settingsOpen ? (
           <ErrorBoundary className="absolute inset-0 z-30 bg-background">
             <SettingsPage
-              onClose={() => setView('chat')}
-              onOpenWorkspace={() => setView('chat')}
+              onClose={closeSettings}
+              onOpenWorkspace={() => {
+                setSurface('chat')
+                closeSettings()
+              }}
+              onBrowseMarket={(scope) => {
+                closeSettings()
+                openMarket('plugins', scope)
+              }}
               initialSection={settingsSection}
             />
           </ErrorBoundary>

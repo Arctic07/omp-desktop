@@ -4,13 +4,10 @@ import { Button } from '@/components/motion/button'
 import { SettingsNotice } from '@/settings/parts'
 import type { PluginsCopy } from '@/settings/sections/plugins/copy'
 import type { PluginEntry } from '@/settings/sections/plugins/contract'
-import { PluginPermissionList } from '@/settings/sections/plugins/PluginPermissionList'
-import { pluginCapabilityLabels, pluginConsentLabel } from '@/settings/sections/plugins/rows'
 
 /**
- * The three cards the page opens before a write it will not run on its own: the first enable of a
- * plugin that brings code, the source switch (which uninstalls before installing), and the
- * uninstall, which removes files and data for good.
+ * The two cards the page opens before a write it will not run on its own: the source switch (which
+ * uninstalls before installing), and the uninstall, which removes files and data for good.
  *
  * Each draws the installation the page asked about, so a card is only on screen while the page
  * holds a pending request for its kind; each answers the page with a confirm or a cancel rather
@@ -18,80 +15,6 @@ import { pluginCapabilityLabels, pluginConsentLabel } from '@/settings/sections/
  * after it, the two presses of a source switch — in one place. Every line is a fact the host
  * reported about the plugin's own directory.
  */
-export function PluginConsentCard({
-  entry,
-  copy,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  entry: PluginEntry
-  copy: PluginsCopy
-  /** The page's write in flight, so the card's two buttons lock with it. */
-  busy: boolean
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  const row = entry.row
-  const reasons = pluginConsentLabel(row.consent.reasons, copy)
-  const capabilities = pluginCapabilityLabels(row.code, copy)
-
-  return (
-    <SettingsNotice variant="warning" title={copy.consentTitle(entry.name)}>
-      <div className="flex flex-col gap-3">
-        <p>{copy.consentBody}</p>
-        {row.code.extensions > 0 ? <p>{copy.consentExtensionNote}</p> : null}
-
-        <div className="flex flex-col gap-1.5">
-          <h4 className="text-[13px] leading-5 font-semibold text-foreground">
-            {copy.consentReasonsTitle}
-          </h4>
-          <ul className="flex list-disc flex-col gap-1 pl-5">
-            {reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <h4 className="text-[13px] leading-5 font-semibold text-foreground">
-            {copy.capabilitiesTitle}
-          </h4>
-          {capabilities.length === 0 ? (
-            <p>{copy.capabilitiesNone}</p>
-          ) : (
-            <ul className="flex list-disc flex-col gap-1 pl-5">
-              {capabilities.map((capability) => (
-                <li key={capability}>{capability}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <h4 className="text-[13px] leading-5 font-semibold text-foreground">
-            {copy.permissionsTitle}
-          </h4>
-          <PluginPermissionList
-            permissions={row.desktop?.permissions ?? []}
-            netDomains={row.desktop?.netDomains ?? []}
-            netAnyHost={row.desktop?.netAnyHost ?? false}
-            copy={copy}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button size="sm" variant="secondary" disabled={busy} onClick={onCancel}>
-            {copy.cancelAction}
-          </Button>
-          <Button size="sm" disabled={busy} onClick={onConfirm}>
-            {copy.consentConfirm}
-          </Button>
-        </div>
-      </div>
-    </SettingsNotice>
-  )
-}
 
 /**
  * The card the page opens before a source switch.

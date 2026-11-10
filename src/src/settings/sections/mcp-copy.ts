@@ -11,9 +11,6 @@ import type { Localized } from '@/lib/i18n'
  *
  * Three families of string are this page's own and are worded for what the controls really do:
  *
- * - `scopeAll` — the scope picker's "no scope filter" entry. The Vue section reuses `scopeLabel`
- *   ("作用域") for that entry; the React section names it, because a picker whose first option is the
- *   picker's own label reads as a heading rather than as a choice.
  * - `missingName` / `missingCommand` / `missingUrl` / `badTimeout` — what the editor refuses with.
  *   The Vue editor answers a missing field with the field's own label ("命令"); a refusal reads
  *   better as the sentence that says what is wrong.
@@ -47,11 +44,9 @@ export interface McpCopy {
   loadFailed: string
   /** A switch write the host refused; the row repeats this sentence beside the engine's code. */
   writeFailed: string
-  writeBusy: string
 
-  /** The toolbar: the scope the list is in, how many definitions it holds, and the search. */
+  /** The toolbar: the scope label the editor and list share. */
   scopeLabel: string
-  scopeAll: string
   scopeUser: string
   scopeProject: string
   mcpCount: (count: number) => string
@@ -107,6 +102,9 @@ export interface McpCopy {
   statusLabels: Readonly<Record<McpStatus, string>>
   /** The status badge's title: why the row reads the status it does. */
   statusReasons: Readonly<Record<McpStatus, string>>
+  /** An MCP switched off by the definition or the user; it has no connection attempt to report. */
+  disabledBadge: string
+  disabledReason: string
   toolCount: (count: number) => string
   /** Joins the two halves of a row's definition line, with this language's punctuation. */
   countSeparator: string
@@ -179,10 +177,8 @@ const en: McpCopy = {
   loading: 'Reading…',
   loadFailed: 'Could not read the MCP servers the engine found.',
   writeFailed: 'The host refused this change.',
-  writeBusy: 'Saving…',
 
   scopeLabel: 'Scope',
-  scopeAll: 'All',
   scopeUser: 'User',
   scopeProject: 'Workspace',
   mcpCount: (count) => `MCP ${count}`,
@@ -245,10 +241,12 @@ const en: McpCopy = {
     disconnected: 'The MCP server is not connected right now.',
     unknown: 'The MCP server status is not available yet.',
   },
+  disabledBadge: 'Switched off',
+  disabledReason: 'This MCP server is switched off; turn it on to start a connection.',
   toolCount: (count) => `${count} tools`,
   countSeparator: ' · ',
   definitionDisabled: 'Off in its definition file',
-  foreignHint: (provider) => `Defined by ${provider}, which this app does not rewrite`,
+  foreignHint: (provider) => `Defined by ${provider}; click to copy it into your own configuration and edit it`,
 
   problemsTitle: 'Configuration problems',
   problemsDescription:
@@ -307,7 +305,7 @@ const en: McpCopy = {
   deleteConfirmAction: 'Delete',
   deleting: 'Deleting…',
   importNote:
-    'Filled in from the definition the engine read. Environment and headers are left empty on purpose: the engine expands `${VAR}` references while reading, so copying them would write resolved values - tokens included - as plain text. Fill in what this server needs.',
+    'Filled in from the definition the engine read. Saving creates your own definition under the new name at the scope this editor shows, and leaves the original untouched. Environment and headers are left empty on purpose: the engine expands `${VAR}` references while reading, so copying them would write resolved values - tokens included - as plain text. Fill in what this server needs.',
 }
 
 const zh: McpCopy = {
@@ -316,10 +314,8 @@ const zh: McpCopy = {
   loading: '正在读取…',
   loadFailed: '无法读取引擎发现的 MCP 服务器。',
   writeFailed: '宿主拒绝了这次改动。',
-  writeBusy: '保存中…',
 
   scopeLabel: '作用域',
-  scopeAll: '全部',
   scopeUser: '用户',
   scopeProject: '工作区',
   mcpCount: (count) => `MCP ${count}`,
@@ -380,10 +376,12 @@ const zh: McpCopy = {
     disconnected: 'MCP 服务器当前未连接。',
     unknown: '暂时无法获取 MCP 服务器状态。',
   },
+  disabledBadge: '已停用',
+  disabledReason: '这个 MCP 已关闭；开启后才会尝试连接。',
   toolCount: (count) => `${count} 个工具`,
   countSeparator: ' · ',
   definitionDisabled: '定义文件中已关闭',
-  foreignHint: (provider) => `来自 ${provider}，本应用不改写它`,
+  foreignHint: (provider) => `来自 ${provider}；点击复制到本应用配置后可修改`,
 
   problemsTitle: '配置问题',
   problemsDescription: '引擎在加载定义时报告的问题，原文照录——涉及的文件就在这句话里。',
@@ -441,7 +439,7 @@ const zh: McpCopy = {
   deleteConfirmAction: '确认删除',
   deleting: '正在删除…',
   importNote:
-    '内容按引擎读到的定义预填。环境变量与请求头刻意留空：引擎读取时会展开 `${VAR}`，照抄会把展开后的值（含令牌）以明文写进配置文件。请按这个服务器的需要填写。',
+    '内容按引擎读到的定义预填。保存会在新名称下按当前编辑器的级别创建本应用的定义，原定义保持不变。环境变量与请求头刻意留空：引擎读取时会展开 `${VAR}`，照抄会把展开后的值（含令牌）以明文写进配置文件。请按这个服务器的需要填写。',
 }
 
 /** Resolve page and editor copy with `useCopy(MCP_COPY)`. */

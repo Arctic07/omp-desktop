@@ -1,7 +1,6 @@
 import type { PluginTemplate } from '@/api/plugins'
 import type { Localized } from '@/lib/i18n'
 import { PROCESS_COPY, type ProcessCopy } from '@/settings/sections/plugins/process-copy'
-import { STORE_COPY, type PluginStoreCopy } from '@/settings/sections/plugins/store-copy'
 
 /**
  * The plugin page's wording, in both languages.
@@ -15,7 +14,7 @@ import { STORE_COPY, type PluginStoreCopy } from '@/settings/sections/plugins/st
  * kind) has no entry — the projection in `rows.ts` falls back to the engine's own spelling rather
  * than to a placeholder.
  */
-export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
+export interface PluginsCopy extends ProcessCopy {
   loading: string
   loadFailed: string
   retry: string
@@ -28,18 +27,13 @@ export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
   taskStages: Readonly<Record<string, string>>
   taskCancel: string
 
-  installedTitle: string
   installedEmptyTitle: string
   installedEmptyDescription: string
   refresh: string
-  refreshing: string
   updateCheckAction: string
-  updateChecking: string
-  updatesNone: string
   updatesFound: (count: number) => string
   upgradeAllAction: string
   reloadAction: string
-  reloadDone: (sessions: number) => string
   reloadFailed: (failed: number) => string
   addAction: string
 
@@ -50,7 +44,7 @@ export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
   searchEmpty: string
 
   updateBadge: string
-  consentRequiredBadge: string
+  consentRequiredAction: string
   consentGrantedBadge: string
   shadowedBadge: string
   shadowedHint: string
@@ -79,6 +73,7 @@ export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
   consentReasonsTitle: string
   consentReasonLabels: Readonly<Record<string, string>>
   consentConfirm: string
+  consentFailed: string
 
   uninstallConfirmTitle: (name: string) => string
   uninstallConfirmBody: string
@@ -230,7 +225,7 @@ export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
   settingToggleOn: (label: string) => string
   settingToggleOff: (label: string) => string
 
-  browseAction: string
+  marketAction: string
 
   installUnavailableTitle: string
   installUnavailableTool: (tool: string) => string
@@ -240,7 +235,6 @@ export interface PluginsCopy extends PluginStoreCopy, ProcessCopy {
 
 export const COPY: Localized<PluginsCopy> = {
   en: {
-    ...STORE_COPY.en,
     ...PROCESS_COPY.en,
     loading: 'Reading…',
     loadFailed: 'Could not read the plugins the engine reports.',
@@ -258,22 +252,14 @@ export const COPY: Localized<PluginsCopy> = {
     },
     taskCancel: 'Stop',
 
-    installedTitle: 'Installed',
     installedEmptyTitle: 'No plugins installed',
     installedEmptyDescription: 'Browse and install plugins to add MCP servers, skills and more.',
     refresh: 'Refresh',
-    refreshing: 'Refreshing...',
     updateCheckAction: 'Check for updates',
-    updateChecking: 'Checking…',
-    updatesNone: 'No plugin has a pending update.',
     updatesFound: (count) =>
       count === 1 ? '1 plugin has an update.' : `${count} plugins have updates.`,
     upgradeAllAction: 'Update all',
     reloadAction: 'Reload plugin state',
-    reloadDone: (sessions) =>
-      sessions === 1
-        ? 'Plugin state reloaded for 1 live session.'
-        : `Plugin state reloaded for ${sessions} live sessions.`,
     reloadFailed: (failed) =>
       failed === 1
         ? '1 open session could not reload its plugin state; reopen it to pick the change up.'
@@ -287,7 +273,7 @@ export const COPY: Localized<PluginsCopy> = {
     searchEmpty: 'No plugins match your search',
 
     updateBadge: 'Update available',
-    consentRequiredBadge: 'Needs confirmation',
+    consentRequiredAction: 'Confirm',
     consentGrantedBadge: 'Confirmed',
     shadowedBadge: 'Shadowed',
     builtinBadge: 'Built-in',
@@ -344,6 +330,7 @@ export const COPY: Localized<PluginsCopy> = {
         'Its manifest could not be read, so it is treated as if it may carry executable code',
     },
     consentConfirm: 'Confirm and enable',
+    consentFailed: 'The confirmation could not be recorded',
 
     uninstallConfirmTitle: (name) => `Uninstall ${name}?`,
     uninstallConfirmBody: 'The plugin’s files and the data listed below are removed.',
@@ -589,7 +576,7 @@ export const COPY: Localized<PluginsCopy> = {
     settingToggleOn: (label) => `Turn on ${label}`,
     settingToggleOff: (label) => `Turn off ${label}`,
 
-    browseAction: 'Browse plugins',
+    marketAction: 'Plugin marketplace',
 
     installUnavailableTitle: 'The installer needs a tool this machine does not have.',
     installUnavailableTool: (tool) =>
@@ -600,7 +587,6 @@ export const COPY: Localized<PluginsCopy> = {
       'The plugin could not be stopped, so nothing changed. Its code may still be running.',
   },
   zh: {
-    ...STORE_COPY.zh,
     ...PROCESS_COPY.zh,
     loading: '正在读取…',
     loadFailed: '无法读取引擎报告的插件。',
@@ -618,18 +604,13 @@ export const COPY: Localized<PluginsCopy> = {
     },
     taskCancel: '停止',
 
-    installedTitle: '已安装',
     installedEmptyTitle: '尚未安装插件',
     installedEmptyDescription: '浏览并安装插件，以添加 MCP、技能及更多能力。',
     refresh: '刷新',
-    refreshing: '刷新中...',
     updateCheckAction: '检查更新',
-    updateChecking: '检查中…',
-    updatesNone: '没有插件有待更新版本。',
     updatesFound: (count) => `有 ${count} 个插件可以更新。`,
     upgradeAllAction: '全部更新',
     reloadAction: '重载插件状态',
-    reloadDone: (sessions) => `插件状态已重载，${sessions} 个在线会话已刷新。`,
     reloadFailed: (failed) => `${failed} 个已打开会话未能重载插件状态，请重开这些会话后再试。`,
     addAction: '添加',
 
@@ -640,7 +621,7 @@ export const COPY: Localized<PluginsCopy> = {
     searchEmpty: '没有匹配的插件',
 
     updateBadge: '可更新',
-    consentRequiredBadge: '待确认',
+    consentRequiredAction: '点击确认',
     consentGrantedBadge: '已确认',
     shadowedBadge: '已被遮蔽',
     builtinBadge: '内置',
@@ -691,6 +672,7 @@ export const COPY: Localized<PluginsCopy> = {
       'manifest-unreadable': '无法读取它的清单，因此按可能带可执行代码处理',
     },
     consentConfirm: '确认并启用',
+    consentFailed: '确认未能记录',
 
     uninstallConfirmTitle: (name) => `卸载「${name}」？`,
     uninstallConfirmBody: '将删除该插件的文件，以及下面列出的数据。',
@@ -922,7 +904,7 @@ export const COPY: Localized<PluginsCopy> = {
     settingToggleOn: (label) => `打开 ${label}`,
     settingToggleOff: (label) => `关闭 ${label}`,
 
-    browseAction: '浏览插件',
+    marketAction: '插件市场',
 
     installUnavailableTitle: '安装所需的工具在本机不可用。',
     installUnavailableTool: (tool) => `该来源需要 \`${tool}\`，本机没有可用的 ${tool}。本地目录安装不受影响。`,

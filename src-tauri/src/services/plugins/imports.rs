@@ -216,6 +216,7 @@ mod tests {
         EngineMarketplaceRow {
             name: catalog.to_owned(),
             source_uri: root.join(catalog).to_string_lossy().into_owned(),
+            ..EngineMarketplaceRow::default()
         }
     }
 
@@ -292,6 +293,7 @@ mod tests {
         let foreign = EngineMarketplaceRow {
             name: catalog.to_owned(),
             source_uri: "https://github.com/owner/marketplace".to_owned(),
+            ..EngineMarketplaceRow::default()
         };
         assert_eq!(
             import_dir_to_remove(root, catalog, Some(&foreign), &[]),
@@ -311,6 +313,7 @@ mod tests {
         let at_the_root = EngineMarketplaceRow {
             name: catalog.to_owned(),
             source_uri: root.to_string_lossy().into_owned(),
+            ..EngineMarketplaceRow::default()
         };
         assert_eq!(
             import_dir_to_remove(root, catalog, Some(&at_the_root), &[]),
@@ -320,6 +323,7 @@ mod tests {
         let climbing = EngineMarketplaceRow {
             name: catalog.to_owned(),
             source_uri: "data/plugin-imports/../../elsewhere".to_owned(),
+            ..EngineMarketplaceRow::default()
         };
         assert_eq!(
             import_dir_to_remove(root, catalog, Some(&climbing), &[]),

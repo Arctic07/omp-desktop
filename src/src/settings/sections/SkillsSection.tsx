@@ -6,13 +6,6 @@ import type { ApiError } from '@/api/client'
 import { AnimatedBadge } from '@/components/motion/animated-badge'
 import { Button } from '@/components/motion/button'
 import { Input } from '@/components/motion/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/motion/select'
 import { Switch } from '@/components/motion/switch'
 import { useCopy } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -37,8 +30,9 @@ import { useResourceState } from '@/state/resource'
 import { prefillComposer } from '@/state/composer-prefill'
 import { sendPrompt, sessionStore, startSessionIn } from '@/state/session-store'
 import { readSkills, skillWriteKey, skillsResource, writeSkill } from '@/state/skills-store'
-import { useStoreSelector } from '@/state/store'
 import { workspaceStore } from '@/state/workspace-store'
+import { WorkspaceScopeSelect } from '@/settings/WorkspaceScopeSelect'
+import { useWorkspaceScope } from '@/settings/use-workspace-scope'
 
 /**
  * The skills page: what the engine discovered for this workspace, grouped by the level it reported,
@@ -61,7 +55,7 @@ const LEVELS: readonly SkillLevel[] = ['user', 'project', 'native', 'unknown']
 /** One page of the list. A skill row is taller than a provider row, but the pages are the same
  *  count the models page uses, and the list no longer grows with the number of skills installed:
  *  the section column keeps its own scroll and the page itself never grows past the window. */
-const PAGE_SIZE = 8
+const PAGE_SIZE = 5
 
 /** The engine's level for a row, folded to the four names above. */
 function levelOf(level: string): SkillLevel {
@@ -71,18 +65,10 @@ function levelOf(level: string): SkillLevel {
 /** No rows at all, as one array: a list the engine has not answered yet keeps its identity. */
 const NO_ROWS: readonly EngineSkillRow[] = []
 
-/** The active workspace: skills are discovered per directory, so this is part of the read. */
-const selectActiveWorkspaceId = (state: { activeId: number | null }): number | null => state.activeId
-
 /** The rows the scope and the query select, in the engine's own order. */
-function selectRows(
-  rows: readonly EngineSkillRow[],
-  scope: string,
-  query: string,
-): EngineSkillRow[] {
+function selectRows(rows: readonly EngineSkillRow[], query: string): EngineSkillRow[] {
   const term = query.trim().toLowerCase()
   return rows.filter((row) => {
-    if (scope !== 'all' && levelOf(row.level) !== scope) return false
     if (term === '') return true
     return (
       row.name.toLowerCase().includes(term) ||
@@ -212,10 +198,13 @@ export default function SkillsSection({
   active?: boolean
 }) {
   const copy = useCopy(SKILLS_COPY)
-  const workspaceId = useStoreSelector(workspaceStore, selectActiveWorkspaceId)
+  const { workspaceId, target, setTarget } = useWorkspaceScope()
   const { status, error, value: view } = useResourceState(skillsResource)
 
-  const [scope, setScope] = useState('all')
+  /** The scope the rows were drawn in before the pick; while the new read runs they keep it. */
+  const [listTarget, setListTarget] = useState(target)
+  /** A picker change is reading the new directory; the old rows keep their own scope meanwhile. */
+  const [switching, setSwitching] = useState(false)
   const [query, setQuery] = useState('')
   /** The page on screen; clamped below rather than reset when the list changes under it. */
   const [page, setPage] = useState(1)
@@ -240,8 +229,37 @@ export default function SkillsSection({
     void readSkills(workspaceId, true)
   }, [workspaceId])
 
+  // The rail's active workspace is the default pick: when it moves, the page follows it through
+  // the same held rows as an explicit pick.
+  useEffect(() => {
+    if (target !== listTarget) setSwitching(true)
+  }, [target, listTarget])
+
+  // The rows on screen are the previous directory's until this read answers; filtering them by the
+  // new scope would empty the list and change the page height for a frame.
+  useEffect(() => {
+    if (!switching) return
+    let live = true
+    void readSkills(workspaceId).finally(() => {
+      if (!live) return
+      setListTarget(target)
+      setSwitching(false)
+    })
+    return () => {
+      live = false
+    }
+  }, [switching, target, workspaceId])
+
   const rows = view?.skills ?? NO_ROWS
-  const filtered = useMemo(() => selectRows(rows, scope, query), [rows, scope, query])
+  const filtered = useMemo(() => {
+    // The machine-wide scope lists no workspace's project skills; the host may still discover them
+    // from its default directory, so they are dropped here rather than shown under `用户`.
+    const rowsInScope =
+      listTarget === 'user'
+        ? rows.filter((row) => levelOf(row.level) !== 'project')
+        : rows.filter((row) => levelOf(row.level) === 'project')
+    return selectRows(rowsInScope, query)
+  }, [rows, query, listTarget])
   // The page is clamped rather than reset: a filter that shortens the list, a workspace switch, or a
   // skill turned off elsewhere moves the reader to the last page that exists instead of an empty one.
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -313,25 +331,35 @@ export default function SkillsSection({
     [copy, onOpenWorkspace, taskRunning, workspaceId],
   )
 
+  /**
+   * The authoring hand-off: a new conversation in one workspace, with `/skill:skill-creator` in the
+   * composer and nothing sent. The prompt names the level the reader chose, because the recipe is
+   * the same either way and the destination is the one thing it cannot infer.
+   */
+  /**
+   * The one authoring entry. The picker decides the destination: a picked workspace creates a
+   * project-level skill there, while the user scope creates a user-level skill in the conversation's
+   * current workspace. One button, because the scope is already the reader's answer.
+   */
   const startNewSkill = useCallback(() => {
     if (taskRunning) return
     setTaskFailed(false)
     setTaskNotice('')
-    if (workspaceId === null) {
+    const project = target !== 'user'
+    const targetWorkspace = project ? target : workspaceStore.get().activeId
+    if (targetWorkspace === null) {
       setTaskFailed(true)
       return
     }
     setTaskRunning(true)
     void (async () => {
       try {
-        // A new task: the reader writes the request in the composer
-        // with `/skill:skill-creator` already in front of it, and nothing is sent for them.
-        await startSessionIn(workspaceId)
+        await startSessionIn(targetWorkspace)
         if (sessionStore.get().activeId === null) {
           setTaskFailed(true)
           return
         }
-        prefillComposer('/skill:skill-creator ')
+        prefillComposer(project ? copy.newProjectSkillPrompt : copy.newUserSkillPrompt)
         onOpenWorkspace()
       } catch {
         setTaskFailed(true)
@@ -339,7 +367,7 @@ export default function SkillsSection({
         setTaskRunning(false)
       }
     })()
-  }, [onOpenWorkspace, taskRunning, workspaceId])
+  }, [copy.newProjectSkillPrompt, copy.newUserSkillPrompt, onOpenWorkspace, target, taskRunning])
 
   /** `导入` hands the skills other agents provide to one task; with none there is nothing to hand over. */
   const startImport = useCallback(() => {
@@ -369,11 +397,6 @@ export default function SkillsSection({
           { value: String(view.summary.hidden), label: copy.figureHidden },
           { value: String(view.summary.warnings), label: copy.figureWarnings },
         ]
-  const scopeOptions = [
-    { value: 'all', label: copy.scopeAll },
-    { value: 'user', label: copy.scopeUser },
-    { value: 'project', label: copy.scopeWorkspace },
-  ]
 
   return (
     <>
@@ -443,27 +466,13 @@ export default function SkillsSection({
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-[13px] leading-5 text-muted-foreground">{copy.scopeLabel}</span>
-            <div className="w-[128px]">
-              <Select
-                value={scope}
-                onValueChange={(value) => {
-                  setScope(value)
-                  setPage(1)
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {scopeOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <WorkspaceScopeSelect
+              value={target}
+              onChange={(next) => {
+                setSwitching(true)
+                setTarget(next)
+              }}
+            />
             <span className="h-5 w-px bg-border" aria-hidden="true" />
             <span className="text-[13px] leading-5 text-muted-foreground">
               {copy.countLabel(filtered.length)}
@@ -497,10 +506,12 @@ export default function SkillsSection({
                 <RefreshCw size={14} aria-hidden="true" />
                 {copy.refresh}
               </Button>
-              <Button size="sm" disabled={taskRunning} onClick={startNewSkill}>
-                <Plus size={14} aria-hidden="true" />
-                {copy.newAction}
-              </Button>
+              {filtered.length === 0 && !searching ? null : (
+                <Button size="sm" disabled={taskRunning} onClick={startNewSkill}>
+                  <Plus size={14} aria-hidden="true" />
+                  {copy.newAction}
+                </Button>
+              )}
             </div>
           </div>
 

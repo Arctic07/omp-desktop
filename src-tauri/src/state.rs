@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use crate::errors::IpcResult;
 use crate::models::agent::SessionSummary;
@@ -26,28 +25,6 @@ use crate::services::workspace_watch::WorkspaceWatch;
 /// engine's own session directory; the ceiling is the backstop for a directory large enough to
 /// outgrow it.
 const SESSION_CACHE_LIMIT: usize = 4096;
-
-/// How long a *successful* marketplace refresh keeps later automatic ones from running.
-///
-/// The plugin store asks for a refresh every time it is opened, and a refresh fetches every
-/// registered catalogue over the network; ten minutes is the window inside which the answer cannot
-/// have changed in a way the user would notice, so a second visit inside it is answered from the
-/// registry the first one wrote. The manual refresh (`engine_marketplace_update`) is not throttled:
-/// a user who presses refresh is asking for a fetch.
-const MARKETPLACE_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(10 * 60);
-
-/// Whether an automatic marketplace refresh may run, given the last *successful* one.
-///
-/// Pure, so the window can be read - and tested - without waiting ten minutes: a process that has
-/// never refreshed may, one whose last success is at least [`MARKETPLACE_REFRESH_MIN_INTERVAL`] ago
-/// may, and anything more recent may not. Only a success records a time, so a failed refresh leaves
-/// the next visit free to try again rather than throttling it for ten minutes.
-fn refresh_due(last: Option<Instant>, now: Instant) -> bool {
-    match last {
-        None => true,
-        Some(last) => now.saturating_duration_since(last) >= MARKETPLACE_REFRESH_MIN_INTERVAL,
-    }
-}
 
 /// Session summaries kept between sidebar scans, keyed by the absolute path the scan walks.
 ///
@@ -283,11 +260,6 @@ pub(crate) struct AppState {
     /// The application's own update check (`services::updater`): one fixed feed, one announced
     /// update, and the state every surface reads. Owner/bound/release are stated by the service.
     pub(crate) updater: Arc<crate::services::updater::UpdaterService>,
-    /// When this process last refreshed the marketplace registry *successfully*, which is what
-    /// throttles the automatic refresh the store asks for when it opens. Owner/bound/release: one
-    /// value for the process's whole life, released with it; it is bounded by definition (a single
-    /// timestamp, replaced in place) and the rule it feeds is `refresh_due`.
-    pub(crate) marketplace_refresh: Mutex<Option<Instant>>,
 }
 
 /// `(provider id, environment name)` for every stored custom provider.
@@ -313,25 +285,6 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|held| held.clone())
-    }
-
-    /// Whether an automatic marketplace refresh may run now.
-    ///
-    /// Read before the fetch rather than after it, so the answer a throttled call gives is the
-    /// registry this process already has: the throttle is about not fetching twice inside the
-    /// window, not about hiding a refresh that did happen.
-    pub(crate) fn marketplace_refresh_due(&self) -> bool {
-        refresh_due(
-            self.marketplace_refresh.lock().ok().and_then(|held| *held),
-            Instant::now(),
-        )
-    }
-
-    /// Records that a marketplace refresh just succeeded.
-    pub(crate) fn remember_marketplace_refresh(&self) {
-        if let Ok(mut held) = self.marketplace_refresh.lock() {
-            *held = Some(Instant::now());
-        }
     }
 
     /// Replaces it. The shell is the only caller, and it names the workspace it is showing.
@@ -548,7 +501,6 @@ impl AppState {
             builtin_sync: Arc::new(BuiltinSync::new()),
             workspace_watch: Arc::new(WorkspaceWatch::new(app.clone())),
             updater,
-            marketplace_refresh: Mutex::new(None),
         })
     }
 }
@@ -619,34 +571,5 @@ mod tests {
             cache.store(&path, 1, index as i64, summary(&format!("s{index}")));
         }
         assert_eq!(cache.lock().len(), SESSION_CACHE_LIMIT);
-    }
-
-    /// The automatic refresh's window: a process that has never refreshed may, a success ten minutes
-    /// old may, and anything more recent may not - which is what keeps the store's entry point from
-    /// fetching every catalogue on every visit. Only a success records a time, so the state a failed
-    /// refresh leaves behind is "never refreshed".
-    #[test]
-    fn an_automatic_marketplace_refresh_is_throttled_to_one_window() {
-        let now = Instant::now();
-        assert!(
-            refresh_due(None, now),
-            "the first refresh of a process runs"
-        );
-        assert!(!refresh_due(Some(now), now), "a success just now throttles");
-        assert!(
-            !refresh_due(
-                Some(now - MARKETPLACE_REFRESH_MIN_INTERVAL + Duration::from_secs(1)),
-                now
-            ),
-            "one second short of the window still throttles"
-        );
-        assert!(
-            refresh_due(Some(now - MARKETPLACE_REFRESH_MIN_INTERVAL), now),
-            "the window's own edge is due"
-        );
-        assert!(
-            refresh_due(Some(now - Duration::from_secs(3_600)), now),
-            "an old success is long due"
-        );
     }
 }

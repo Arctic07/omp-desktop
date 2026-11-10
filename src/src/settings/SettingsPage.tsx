@@ -13,6 +13,7 @@ import ModelsSection from '@/settings/sections/ModelsSection'
 import PluginsSection from '@/settings/sections/PluginsSection'
 import RulesSection from '@/settings/sections/RulesSection'
 import SkillsSection from '@/settings/sections/SkillsSection'
+import type { WorkspaceScopeTarget } from '@/settings/use-workspace-scope'
 import UsageSection from '@/settings/sections/UsageSection'
 
 /** One page of the settings overlay, as its section column lists them. */
@@ -148,6 +149,8 @@ interface SettingsSectionEntry {
 export interface SettingsSectionProps {
   /** Leave settings for the conversation column, after a section has started work there. */
   onOpenWorkspace: () => void
+  /** Leave settings for the plugin marketplace, carrying the plugin page's current scope. */
+  onBrowseMarket?: (scope: WorkspaceScopeTarget) => void
 }
 
 /** The desktop app's own order: usage first, about last. */
@@ -183,6 +186,7 @@ const SECTIONS: readonly SettingsSectionEntry[] = [
 export function SettingsPage({
   onClose,
   onOpenWorkspace,
+  onBrowseMarket,
   initialSection,
 }: {
   onClose: () => void
@@ -194,6 +198,8 @@ export function SettingsPage({
    * shell's own view and therefore the shell's to make.
    */
   onOpenWorkspace: () => void
+  /** Leave settings for the plugin marketplace, carrying the plugin page's current scope. */
+  onBrowseMarket: (scope: WorkspaceScopeTarget) => void
   /**
    * The section to open on.
    *
@@ -290,7 +296,7 @@ export function SettingsPage({
                     // tools, and a page that only read once would keep showing the list from before.
                     <SkillsSection onOpenWorkspace={onOpenWorkspace} active={shown} />
                   ) : (
-                    <Section onOpenWorkspace={onOpenWorkspace} />
+                    <Section onOpenWorkspace={onOpenWorkspace} onBrowseMarket={onBrowseMarket} />
                   )}
                 </div>
               )

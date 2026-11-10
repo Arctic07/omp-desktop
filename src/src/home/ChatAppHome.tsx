@@ -12,6 +12,7 @@ import { useCopy } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/lib/error-boundary";
 import { reportClientError } from "@/lib/client-errors";
+import { PluginMarketPage } from "@/market/PluginMarketPage";
 import { COPY } from "@/home/homeCopy";
 import { ConversationComposer, COMPOSER_ID } from "@/home/ConversationComposer";
 import { ConversationMenu } from "@/home/ConversationMenu";
@@ -20,6 +21,7 @@ import { ConversationHero } from "@/home/ConversationHero";
 import { OpenInAppButton } from "@/home/OpenInAppButton";
 import { WorkspaceRail } from "@/home/WorkspaceRail";
 import { prefillComposerDraft } from "@/state/composer-prefill";
+import type { WorkspaceScopeTarget } from "@/settings/use-workspace-scope";
 import {
   activeRecord,
   isStreaming,
@@ -42,10 +44,28 @@ import { stalePanelOwners } from "@/state/panel-prune";
 import { workspaceStore } from "@/state/workspace-store";
 import { conversationPhase, type ConversationPhase } from "@/home/conversation-phase";
 
+/** The two surfaces the window body draws; settings is an overlay above whichever is up. */
+export type Surface = 'chat' | 'market';
+
 export interface ChatAppHomeProps {
   className?: string;
   /** The rail's own settings entry, at the foot of the sidebar. */
   onOpenSettings?: () => void;
+  /** Which surface the body draws: the conversation column, or the plugin marketplace. */
+  surface: Surface;
+  /** The rail's own door to the marketplace. */
+  onOpenMarket: () => void;
+  /** The marketplace's Back control: the surface it was opened from. */
+  onMarketBack: () => void;
+  /** The scope carried into the market from plugin management; `user` from the rail. */
+  marketScope: WorkspaceScopeTarget;
+  /** Bumped on every open so a market left mounted under Settings applies the carried scope. */
+  marketOpenId: number;
+  /** The marketplace's door into plugin management. */
+  onOpenConversation: () => void;
+  onOpenPlugins: () => void;
+  /** Start the guided plugin-authoring flow with this prompt in the composer. */
+  onCreatePlugin: (prompt: string) => void;
   /**
    * The sidebar's state, owned by the shell rather than by this screen.
    *
@@ -68,6 +88,14 @@ export interface ChatAppHomeProps {
 export function ChatAppHome({
   className,
   onOpenSettings,
+  surface,
+  onOpenMarket,
+  onMarketBack,
+  marketScope,
+  marketOpenId,
+  onOpenConversation,
+  onOpenPlugins,
+  onCreatePlugin,
   sidebarOpen,
   onSidebarOpenChange,
 }: ChatAppHomeProps) {
@@ -134,8 +162,13 @@ export function ChatAppHome({
         sidebarWidth="16.8rem"
         className="min-h-0 flex-1 rounded-none border-0"
       >
-        <WorkspaceRail onOpenSettings={onOpenSettings} />
-        <AnimatedSidebarInset className="min-h-0 flex-row bg-pane">
+        <WorkspaceRail
+          onOpenSettings={onOpenSettings}
+          onOpenMarket={onOpenMarket}
+          marketOpen={surface === "market"}
+          onOpenConversation={onOpenConversation}
+        />
+        <AnimatedSidebarInset className="relative min-h-0 flex-row bg-pane">
           {/* `relative` because the hero's header is taken out of the flow (`ConversationHeader`): it
               is positioned against this column, not against the window. */}
           {/* The conversation column is the flex remainder: it shrinks with the right column instead
@@ -147,11 +180,11 @@ export function ChatAppHome({
               left `inert` while out of sight so Tab and the keyboard cannot reach a surface nobody
               sees. */}
           <div
-            aria-hidden={panelExpanded}
-            inert={panelExpanded}
+            aria-hidden={panelExpanded || surface === "market"}
+            inert={panelExpanded || surface === "market"}
             className={cn(
               "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip transition-opacity duration-200",
-              panelExpanded && "pointer-events-none opacity-0",
+              (panelExpanded || surface === "market") && "pointer-events-none opacity-0",
             )}
           >
             <ConversationHeader
@@ -175,9 +208,10 @@ export function ChatAppHome({
           </div>
           <RightSidebar
             sessionId={sessionId}
-            open={rightSidebarOpen}
-            expanded={panelExpanded}
+            open={surface === "chat" && rightSidebarOpen}
+            expanded={surface === "chat" && panelExpanded}
             onToggleExpanded={togglePanelExpanded}
+            onOpenPanel={onOpenConversation}
             onOpenChange={(open) => {
               if (sessionId === null) return;
               // Closing the column is closing it for this conversation; reopening it later starts at
@@ -186,6 +220,19 @@ export function ChatAppHome({
               setPanelOpen(sessionId, open);
             }}
           />
+          {surface === "market" ? (
+            <div className="absolute inset-0 z-20 flex min-h-0 min-w-0 bg-pane">
+              <ErrorBoundary className="flex-col">
+                <PluginMarketPage
+                  key={marketOpenId}
+                  onBack={onMarketBack}
+                  onOpenPlugins={onOpenPlugins}
+                  onCreatePlugin={onCreatePlugin}
+                  initialScope={marketScope}
+                />
+              </ErrorBoundary>
+            </div>
+          ) : null}
         </AnimatedSidebarInset>
       </ChatApp>
     </div>

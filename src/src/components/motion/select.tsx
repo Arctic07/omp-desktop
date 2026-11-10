@@ -223,9 +223,11 @@ export function Select({
 export interface SelectTriggerProps {
   className?: string;
   children: ReactNode;
+  /** The control's accessible name when the visible content is a composed label. */
+  ariaLabel?: string;
 }
 
-export function SelectTrigger({ className, children }: SelectTriggerProps) {
+export function SelectTrigger({ className, children, ariaLabel }: SelectTriggerProps) {
   const ctx = useSelectContext("SelectTrigger");
   const rotate = useTransform(ctx.progress, (p) =>
     ctx.reduce ? (ctx.open ? 180 : 0) : Math.min(1, Math.max(0, p)) * 180,
@@ -235,6 +237,7 @@ export function SelectTrigger({ className, children }: SelectTriggerProps) {
       type="button"
       id={ctx.triggerId}
       disabled={ctx.disabled}
+      aria-label={ariaLabel}
       aria-haspopup="listbox"
       aria-expanded={ctx.open}
       aria-controls={ctx.listId}
@@ -355,6 +358,26 @@ export function SelectContent({ className, children }: SelectContentProps) {
         {children}
       </motion.div>
     </motion.div>
+  );
+}
+
+export interface SelectLabelProps {
+  children: ReactNode;
+  className?: string;
+}
+
+/** A non-selectable heading inside the listbox, for a group of options. */
+export function SelectLabel({ children, className }: SelectLabelProps) {
+  return (
+    <div
+      role="presentation"
+      className={cn(
+        "px-2.5 pt-2 pb-1 text-[11px] leading-4 font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
