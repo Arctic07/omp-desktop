@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { CodeFacts, PluginCandidate } from './plugins-rows.ts'
 import { mergeCandidates, pluginIdOf } from './plugins-rows.ts'
 import type { PluginCatalog } from './plugins-market.ts'
+import { parsePluginId } from './harness.ts'
 
 /**
  * Row identity and the source projection (plan §4.1): the engine's `name@marketplace` becomes the
@@ -15,13 +16,6 @@ import type { PluginCatalog } from './plugins-market.ts'
  * empty segment on either side). The production caller passes `sdk.parsePluginId` itself, so the
  * rule under test is the contract, and the id shapes here are the ones the engine's registry holds.
  */
-
-/** The engine's `parsePluginId`, restated for a test that must stay free of the engine. */
-function parsePluginId(id: string): { name: string; marketplace: string } | null {
-  const at = id.lastIndexOf('@')
-  if (at <= 0 || at === id.length - 1) return null
-  return { name: id.slice(0, at), marketplace: id.slice(at + 1) }
-}
 
 /** A plugin that ships no code: the facts a merge never changes, and nothing that runs. */
 const NO_CODE: CodeFacts = {

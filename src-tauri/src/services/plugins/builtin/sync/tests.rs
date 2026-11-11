@@ -331,3 +331,18 @@ fn a_retired_installation_is_asked_about_only_when_the_list_holds_it() {
         retired
     ));
 }
+
+/// The line between this application's earlier registration and somebody else's: the seed only
+/// ever registers an absolute directory, so only an absolute source can be a leftover of it.
+#[test]
+fn only_an_absolute_source_can_be_this_applications_reserved_registration() {
+    let absolute = std::env::current_dir()
+        .expect("a current directory")
+        .join("omitted-bundle");
+    assert!(source_is_local_registration(&absolute.to_string_lossy()));
+    assert!(!source_is_local_registration("owner/repo"));
+    assert!(!source_is_local_registration(
+        "https://example.test/marketplace.json"
+    ));
+    assert!(!source_is_local_registration("relative/bundle"));
+}

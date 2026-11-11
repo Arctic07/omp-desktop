@@ -744,10 +744,10 @@ fn enabled_at(plugins: &[EnginePluginRow], def: &BuiltinDef) -> bool {
 ///
 /// The read is the registry alone - no refresh, no install, no plugin file - which is what makes it
 /// safe on the path where nothing else may be touched (a disabled installation on a list read).
-/// `Ok(false)` means the name is not registered yet, or is registered against somebody else's source:
-/// either way nothing may be trusted until it is. The first case is fixed by the install that
-/// follows, which registers the bundle's own directory; the second is a conflict this application
-/// refuses to resolve, and the installation stays an ordinary third-party plugin.
+/// `Ok(false)` means the name is not registered yet, or is registered against another source:
+/// either way this read trusts nothing, and the write that would repair it is `ensure_marketplace`,
+/// which the next install or update runs. Keeping every write on that path is what lets this one
+/// answer without touching any state.
 pub(super) async fn reserved_source_verified(state: &AppState, root: &Path) -> IpcResult<bool> {
     let registry = state.runtime.marketplaces().await?;
     let Some(existing) = registry
@@ -760,15 +760,30 @@ pub(super) async fn reserved_source_verified(state: &AppState, root: &Path) -> I
     Ok(is_within(root, Path::new(existing.source_uri.trim())))
 }
 
+/// Whether a reserved registration's source is a location this application could have written.
+///
+/// The seed registers the bundle's absolute directory (`marketplace_add` is handed
+/// `bundle.root`), so an absolute path is this application's earlier registration even when the
+/// directory is gone; a non-absolute source - a repository reference, a URL - never is, and a
+/// registration under that shape stays somebody else's.
+fn source_is_local_registration(source: &str) -> bool {
+    Path::new(source).is_absolute()
+}
+
 /// Makes sure the reserved marketplace is registered against the bundled catalogue, and refreshes
 /// the engine's cached copy of it.
 ///
-/// The name is this application's own, so a row holding it is either a previous run's registration
-/// (the source is the bundle directory, or inside it) or somebody else's marketplace that happens to
-/// spell the same name. The first is refreshed - a new application version ships a new catalogue at
-/// the same path, and the engine's cached copy is what its update check reads - while the second is
-/// refused outright: removing a marketplace this application did not add is not a repair, and the
-/// installations stay unseeded instead of the name being stolen.
+/// The name belongs to this application, so a registration holding it is either this build's own
+/// bundle (the source is the bundle directory, or inside it) or an earlier build's registration
+/// left behind by a data root shared between builds - a second checkout, a removed `target/debug`,
+/// an upgrade that kept the profile. The first is refreshed in place: a new application version
+/// ships a new catalogue at the same path, and the engine's cached copy is what its update check
+/// reads. The second is repointed - the old registration dropped and this build's bundle registered
+/// in its place - because otherwise the seed could never refresh or install what this build ships
+/// and the built-in installation would stay unprotected. `source_is_local_registration` draws the
+/// line: a registration whose source is not a local absolute path (a repository reference, a URL)
+/// is somebody else's and is refused outright, since this application only ever registers an
+/// absolute directory.
 async fn ensure_marketplace(state: &AppState, bundle: &Bundle) -> IpcResult<()> {
     let registry = state.runtime.marketplaces().await?;
     let Some(existing) = registry
@@ -783,11 +798,27 @@ async fn ensure_marketplace(state: &AppState, bundle: &Bundle) -> IpcResult<()> 
         state.builtin_sync.remember_trusted();
         return Ok(());
     };
-    if !is_within(&bundle.root, Path::new(existing.source_uri.trim())) {
-        return Err(IpcError::new(
-            PLUGIN_MARKETPLACE_RESERVED,
-            "A marketplace with the built-in plugins' reserved name already exists and points somewhere else.",
+    let source = existing.source_uri.trim();
+    if !is_within(&bundle.root, Path::new(source)) {
+        if !source_is_local_registration(source) {
+            return Err(IpcError::new(
+                PLUGIN_MARKETPLACE_RESERVED,
+                "A marketplace with the built-in plugins' reserved name already exists and points somewhere else.",
+            ));
+        }
+        state
+            .runtime
+            .marketplace_remove(BUILTIN_MARKETPLACE_NAME)
+            .await?;
+        state
+            .runtime
+            .marketplace_add(&bundle.root.to_string_lossy())
+            .await?;
+        log::info(&format!(
+            "the built-in plugins' reserved marketplace was repointed at this build's bundle: previous source={source}"
         ));
+        state.builtin_sync.remember_trusted();
+        return Ok(());
     }
     state
         .runtime

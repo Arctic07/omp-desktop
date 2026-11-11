@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { PluginCatalog } from './plugins-market.ts'
+import { parsePluginId } from './harness.ts'
 import type { EngineUpdate, InstalledMarketRecord } from './plugins-updates.ts'
 import { classifyPluginUpdates, isNewerVersion } from './plugins-updates.ts'
 
@@ -15,13 +16,6 @@ import { classifyPluginUpdates, isNewerVersion } from './plugins-updates.ts'
  * parsed). `parse` is the engine's documented `parsePluginId` rule, restated here because the seam
  * check keeps the engine out of this file.
  */
-
-/** The engine's `parsePluginId`, restated for a test that must stay free of the engine. */
-function parsePluginId(id: string): { name: string; marketplace: string } | null {
-  const at = id.lastIndexOf('@')
-  if (at <= 0 || at === id.length - 1) return null
-  return { name: id.slice(0, at), marketplace: id.slice(at + 1) }
-}
 
 /** The engine's comparison, spelled out: the reference `isNewerVersion` must agree with. */
 function engineRule(candidate: string, installed: string): boolean {

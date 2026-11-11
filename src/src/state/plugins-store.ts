@@ -65,6 +65,7 @@ import type {
   PluginsView,
 } from '@/api/plugins-types'
 import { BUILTIN_MARKETPLACE_SOURCE, isBuiltinMarketplace } from '@/lib/plugin-market'
+import { pluginSettingsKey, pluginSettingsTarget } from '@/lib/plugin-settings-key'
 import { createKeyedResource, createResource, createWorkspaceResource } from '@/state/resource'
 import { createStore } from '@/state/store'
 import { applyPluginProcessEvent, retainActivatedViews } from '@/state/plugin-process'
@@ -464,22 +465,16 @@ export function clearUpdates(): void {
 
 /** Keyed by workspace *and* plugin: an installation is a plugin id at one scope in one project. */
 export const pluginSettingsResource = createKeyedResource<string, EnginePluginSettings>((key) => {
-  const separator = key.indexOf('\u0000')
-  const workspaceId = Number(key.slice(0, separator))
-  const id = key.slice(separator + 1)
+  const { workspaceId, id } = pluginSettingsTarget(key)
   return pluginConfig(workspaceId, id)
 })
-
-function settingsKey(workspaceId: number | null, id: string): string {
-  return `${workspaceId ?? ''}\u0000${id}`
-}
 
 export function readPluginSettings(
   workspaceId: number | null,
   id: string,
   force = false,
 ): Promise<void> {
-  return pluginSettingsResource.read(settingsKey(workspaceId, id), { force })
+  return pluginSettingsResource.read(pluginSettingsKey(workspaceId, id), { force })
 }
 
 export async function writePluginSetting(

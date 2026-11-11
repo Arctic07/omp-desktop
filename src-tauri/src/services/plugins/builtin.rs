@@ -170,10 +170,10 @@ pub(crate) fn definition_manifest(
 /// ([`def_for_plugin_id`]), the row lives at the scope the bundle is seeded at, and the marketplace
 /// it came from is the reserved one ([`identity::source_marketplace`]). What makes those facts
 /// *trustworthy* is the marketplace check the caller applies on top ([`apply_trust`],
-/// [`write_refusal`]): a same-named package installed from somebody else's marketplace names a
-/// different marketplace, and a marketplace that merely holds the reserved name against another
-/// source is a conflict the seed fails closed on. Neither is this application's, and neither is
-/// protected.
+/// [`write_refusal`]): the reserved registration must point at this build's bundle. A registration
+/// holding the name against another source is either an earlier build's leftover - the seed
+/// repoints it at this build's absolute bundle directory - or somebody else's, which keeps the seed
+/// unseeded and these rows unprotected.
 pub(crate) fn is_builtin_row(row: &EnginePluginRow) -> bool {
     // The scope is part of the installation's identity: the bundle is seeded at [`BUILTIN_SCOPE`],
     // and a project-scope row of the same plugin is somebody else's installation.
