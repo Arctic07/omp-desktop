@@ -982,4 +982,4 @@ export const PLUGIN_WORKER_EVENTS_MAX = 64
 export const PLUGIN_WORKER_EVENT_HANDLERS_MAX = 8
 
 /** Status message every uncaught host failure is reported with. */
-export const HOST_VERSION = '0.1.1'
+export const HOST_VERSION = '0.2.0'

@@ -1,7 +1,7 @@
 {
   "name": "omp-tauri-desktop",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@9.15.4",
@@ -20,6 +20,7 @@
     "host:build": "bun run host/build.ts",
     "host:install": "bun run host/build.ts --install",
     "check:upstream": "bun run scripts/check-upstream.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "notices:generate": "node scripts/generate-notices.mjs",
     "notices:check": "node scripts/generate-notices.mjs --check",
     "check:docs": "node scripts/check-doc-budget.mjs",
