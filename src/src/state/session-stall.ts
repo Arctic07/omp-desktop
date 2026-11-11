@@ -12,7 +12,8 @@
  * (`state/session-activity.ts`) with the host's own `lastEventAt` as the baseline for a conversation
  * opened mid-turn. That is deliberately more than the state snapshot: a long healthy turn publishes
  * its snapshot only at the edges, and reading silence off a snapshot would reclaim a conversation
- * that is streaming perfectly well.
+ * that is streaming perfectly well. Its row follows the same reading: `forgetStalled` takes it down
+ * on the next activity note, not on the next sweep.
  *
  * **What counts as stuck is narrow, because a wrong reclaim is destructive.** Only a turn in flight
  * is considered, and only when nothing legitimate could explain the quiet: no engine retry (a
@@ -34,6 +35,7 @@ import { toApiError } from '@/api/client'
 import {
   forgetSessionActivity,
   lastSessionActivity,
+  onSessionHeard,
   sessionSnoozed,
   snoozeSession,
 } from '@/state/session-activity'
@@ -44,7 +46,7 @@ import {
 } from '@/state/session-record'
 import { afterReclaim, sessionStore } from '@/state/session-store'
 import { restoreWithdrawnPrompts } from '@/state/restored-prompts'
-import { autoReclaimDue, isReclaimable, silenceOf } from '@/state/stall-rules'
+import { autoReclaimDue, isReclaimable, silenceOf, withoutStalledRow } from '@/state/stall-rules'
 import { createStore } from '@/state/store'
 import { pushNotice } from '@/state/transcript'
 
@@ -71,10 +73,13 @@ function lastHeard(record: SessionRecord): number {
 const reclaiming = new Set<string>()
 
 let timer: number | null = null
+/** The subscription that takes a row down the moment its conversation writes again. */
+let stopHeard: (() => void) | null = null
 
 /** Start the watch. One timer for the process; a second call is a no-op. */
 export function startStallWatch(): void {
   if (timer !== null) return
+  stopHeard = onSessionHeard(forgetStalled)
   timer = window.setInterval(sweepStalls, STALL_SWEEP_MS)
   sweepStalls()
 }
@@ -82,9 +87,26 @@ export function startStallWatch(): void {
 /** Stop the watch, for the process ending or a test tearing one down. */
 export function stopStallWatch(): void {
   if (timer === null) return
+  stopHeard?.()
+  stopHeard = null
   window.clearInterval(timer)
   timer = null
   stallWatchStore.set({ stalled: {} })
+}
+
+/**
+ * Take one conversation's row down because it produced something.
+ *
+ * The row's premise is that nothing arrived, so the first activity note is the fact that ends it.
+ * Waiting for the next sweep would leave the warning over an answer that had already resumed
+ * writing, which is the defect the row then states against itself. Only a present id is rewritten
+ * (`stall-rules.ts::withoutStalledRow`), so a note for a conversation with nothing drawn costs one
+ * lookup and no store write.
+ */
+function forgetStalled(sessionId: string): void {
+  const current = stallWatchStore.get().stalled
+  const next = withoutStalledRow(current, sessionId)
+  if (next !== current) stallWatchStore.set({ stalled: next })
 }
 
 /** The reader's answer to the row: no automatic step for this conversation for a while. */

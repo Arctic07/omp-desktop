@@ -18,6 +18,25 @@ import { isStreaming, type WorkReadings } from "./work-readings.ts";
 export const STALL_RECLAIM_MS = 10 * 60_000;
 
 /**
+ * The stall rows still standing after one conversation produced something.
+ *
+ * The row's premise is that nothing arrived, so an activity note is the fact that ends it
+ * (`state/session-activity.ts::onSessionHeard`, delivered by `state/session-stall.ts::forgetStalled`).
+ * Returning the record it was given when the id is absent is what keeps the per-frame path from
+ * writing the store for a conversation with nothing drawn: the caller compares by identity instead
+ * of cloning a record it would immediately discard.
+ */
+export function withoutStalledRow(
+  stalled: Readonly<Record<string, number>>,
+  sessionId: string,
+): Readonly<Record<string, number>> {
+  if (!Object.prototype.hasOwnProperty.call(stalled, sessionId)) return stalled;
+  const next: Record<string, number> = { ...stalled };
+  delete next[sessionId];
+  return next;
+}
+
+/**
  * The facts these rules read, as a record carries them (structurally, so tests need no store).
  *
  * The turn bit and the runtime's work flags are `state/work-readings.ts`'s view of the same record,
