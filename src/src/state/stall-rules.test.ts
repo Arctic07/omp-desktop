@@ -8,6 +8,7 @@ import {
   silenceOf,
   STALL_RECLAIM_MS,
   type StallReadings,
+  withoutStalledRow,
 } from './stall-rules.ts'
 
 /**
@@ -15,7 +16,9 @@ import {
  *
  * What is pinned down here is the narrowness, because the cost of a wrong answer is a forced stop:
  * a working turn with a background service, a retry, a waiting dialog or a live child must never
- * read as stuck, and a conversation that has stopped producing frames must.
+ * read as stuck, and a conversation that has stopped producing frames must. The same module owns
+ * which drawn rows one activity note takes down, because a row left over a conversation that is
+ * writing is the same false reading in the other direction.
  */
 
 const TURN = 1_700_000_000_000
@@ -88,4 +91,20 @@ test('the conversation on screen is never taken down automatically', () => {
     autoReclaimDue({ silence, snoozeUntil: 0, now: TURN, onScreen: true })
   assert.equal(due(STALL_RECLAIM_MS), false)
   assert.equal(due(24 * 60 * 60_000), false)
+})
+
+test("an activity note takes that conversation's row down and leaves the others", () => {
+  const rows = { 'session-a': TURN, 'session-b': TURN + 1 }
+  const cleared = withoutStalledRow(rows, 'session-a')
+  assert.deepEqual(cleared, { 'session-b': TURN + 1 })
+  // The state the store hands in is replaced, never edited in place: a reader comparing the old
+  // record would otherwise see the row disappear without a write.
+  assert.deepEqual(rows, { 'session-a': TURN, 'session-b': TURN + 1 })
+})
+
+test('a conversation with no row is the same record, so no store write happens', () => {
+  const rows = { 'session-b': TURN }
+  assert.equal(withoutStalledRow(rows, 'session-a'), rows)
+  const none: Readonly<Record<string, number>> = {}
+  assert.equal(withoutStalledRow(none, 'session-a'), none)
 })
