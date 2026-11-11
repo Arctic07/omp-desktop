@@ -34,10 +34,14 @@ import {
   type ComposerUndoStep,
 } from "@/components/agents/composer-undo";
 import {
+  chipPlacements,
   draftProse,
+  insertPastedChips,
   planClipboardPaste,
+  shiftPasteSpan,
   type ClipboardPaste,
   type ComposerAttachment,
+  type PastedChipPositions,
 } from "@/state/composer-draft";
 import { openAttachmentViewer } from "@/state/attachment-viewer-store";
 import { copyTextWithFiles, recallOwnCopy, recoverPastedText } from "@/lib/clipboard";
@@ -91,8 +95,12 @@ export interface ComposerFieldHandle {
    * the import, because the import is a round trip through the desktop and the caret moves meanwhile.
    */
   captureAnchor: () => void
-  /** Write freshly imported chips at the remembered spot, and leave the caret after them. */
-  insertChips: (attachments: readonly ComposerAttachment[]) => void
+  /**
+   * Write freshly imported chips at the remembered spot, or at the offsets a paste's copy named.
+   *
+   * `pasteId` names the paste whose import this is; only its own pending entry can be consumed.
+   */
+  insertChips: (attachments: readonly ComposerAttachment[], pasteId?: number) => void
   focus: () => void
 }
 
@@ -124,15 +132,16 @@ export interface ComposerFieldProps {
   onRestoreDraft: (draft: string, attachments: readonly ComposerAttachment[]) => void
   /** The ✕: a file the reader took out of this prompt. */
   onRemoveAttachment: (token: string) => void
-  /** Files pasted into the field, which the composer imports. */
-  onFiles: (files: readonly File[]) => void
+  /** Files pasted into the field, which the composer imports; `pasteId` names that paste. */
+  onFiles: (files: readonly File[], pasteId?: number) => void
   /**
    * Paths a paste named itself — a copy this page wrote — which the composer attaches as files.
    *
    * A copy of a message carries the files' own addresses, so it comes back as those files rather
-   * than as a second copy of their bytes. Absent, that paste attaches nothing.
+   * than as a second copy of their bytes. Absent, that paste attaches nothing. `pasteId` is the same
+   * identity `onFiles` carries, so the import that answers can be matched to the paste that started.
    */
-  onPaths?: (paths: readonly string[]) => void
+  onPaths?: (paths: readonly string[], pasteId?: number) => void
   /** Enter, and Enter with the accelerator — the two gestures a textarea would report. */
   onSubmitGesture: (gesture: PromptSubmitGesture) => void
   /**
@@ -179,6 +188,17 @@ interface DraftAnchor {
 }
 
 /**
+ * One in-flight paste's chip offsets: the draft they describe, plus their range in it.
+ *
+ * The entry lives in `pendingChips` under the paste identity, and `adjustPending` moves it when the
+ * reader edits outside that range. An edit inside the range drops it, so the chips fall back to the
+ * paste's anchor instead of landing in words the offsets no longer describe.
+ */
+interface PendingPasteChips extends PastedChipPositions {
+  draft: string
+}
+
+/**
  * The key a popup on the field would answer, if this is one of them.
  *
  * Modifiers stay the reader's: Ctrl/Cmd+Enter still submits, Shift+Enter is still a newline, and
@@ -207,8 +227,8 @@ interface LatestState {
   onValueChange: (next: string) => void
   onRestoreDraft: (draft: string, attachments: readonly ComposerAttachment[]) => void
   onRemoveAttachment: (token: string) => void
-  onFiles: (files: readonly File[]) => void
-  onPaths: (paths: readonly string[]) => void
+  onFiles: (files: readonly File[], pasteId?: number) => void
+  onPaths: (paths: readonly string[], pasteId?: number) => void
   onSubmitGesture: (gesture: PromptSubmitGesture) => void
   onHistoryPrevious: () => boolean
   onHistoryNext: () => boolean
@@ -258,6 +278,10 @@ export function ComposerField({
   const draftRef = useRef("");
   /** Where an import lands, in draft coordinates, and the caret as last seen. */
   const anchorRef = useRef<DraftAnchor | null>(null);
+  /** The chips each in-flight paste's copy said stood inside its words, by paste identity. */
+  const pendingChips = useRef(new Map<number, PendingPasteChips>());
+  /** The next paste's identity: one per paste, so an import can name the paste it belongs to. */
+  const pasteSequence = useRef(0);
   const caretRef = useRef(0);
   /**
    * The drafts Ctrl+Z and Ctrl+Shift+Z walk.
@@ -399,18 +423,57 @@ export function ComposerField({
     );
   }, []);
 
+  /**
+   * Move every in-flight paste's offsets across an edit, or drop the ones the edit touched.
+   *
+   * `shiftPasteSpan` owns the arithmetic; this is the one place the field applies it, so a paste
+   * stays anchored while the reader keeps typing around it.
+   */
+  const adjustPending = useCallback((before: string, after: string) => {
+    for (const [id, pending] of pendingChips.current) {
+      const span = shiftPasteSpan(pending, before, after);
+      if (span === null) {
+        pendingChips.current.delete(id);
+        continue;
+      }
+      pendingChips.current.set(id, { ...pending, ...span, draft: after });
+    }
+  }, []);
+
+  /** Put imported chips into the box as one undo step, wherever the caller decided they land. */
+  const paintImportedChips = useCallback(
+    (
+      before: string,
+      caretBefore: number,
+      next: string,
+      caretAfter: number,
+      records: readonly ComposerAttachment[],
+    ) => {
+      rememberEdit(before, caretBefore, false);
+      render(next, caretAfter, records);
+      adjustPending(before, draftRef.current);
+      latest.current.onDraftEdited();
+      anchorRef.current = null;
+      caretRef.current = caretAfter;
+      rootRef.current?.focus();
+    },
+    [adjustPending, rememberEdit, render],
+  );
+
   /** Put one recorded step back into the box and into the composer's store. */
   const applyStep = useCallback(
     (step: ComposerUndoStep) => {
       // `step.attachments` are painted here as well: the store may already have dropped a record the
       // step is bringing back, and the chip has to be on screen in the same commit it is restored in.
+      const before = draftRef.current;
       render(step.draft, step.caret, step.attachments);
+      adjustPending(before, draftRef.current);
       caretRef.current = Math.min(step.caret, step.draft.length);
       latest.current.onRestoreDraft(step.draft, step.attachments);
       latest.current.onDraftEdited();
       rootRef.current?.focus();
     },
-    [render],
+    [adjustPending, render],
   );
 
   const undoDraft = useCallback(() => {
@@ -448,12 +511,14 @@ export function ComposerField({
       const at = draft.indexOf(token);
       if (at < 0) return;
       rememberEdit(draft, at, false);
-      render(`${draft.slice(0, at)}${draft.slice(at + 1)}`, at);
+      const next = `${draft.slice(0, at)}${draft.slice(at + 1)}`;
+      render(next, at);
+      adjustPending(draft, draftRef.current);
       latest.current.onRemoveAttachment(token);
       latest.current.onDraftEdited();
       rootRef.current?.focus();
     },
-    [rememberEdit, render],
+    [adjustPending, rememberEdit, render],
   );
 
   useLayoutEffect(() => {
@@ -487,6 +552,7 @@ export function ComposerField({
   useLayoutEffect(() => {
     if (value === draftRef.current) return;
     undoRef.current = emptyComposerUndo();
+    pendingChips.current.clear();
     render(value, value.length);
   }, [render, value]);
 
@@ -549,6 +615,7 @@ export function ComposerField({
     const inputType = (event.nativeEvent as InputEvent).inputType ?? "";
     const ownEdit = inputType === "deleteByCut" || inputType === "insertFromDrop";
     rememberEdit(draftRef.current, caretRef.current, !ownEdit);
+    adjustPending(draftRef.current, draft);
     draftRef.current = draft;
     const selection = selectionRange(root);
     caretRef.current = selection === null ? draft.length : selection.end;
@@ -604,14 +671,13 @@ export function ComposerField({
   };
 
   /**
-   * Put words into the draft where the paste's anchor is, as one undo step.
+   * Put words where the paste's anchor is, as one undo step, and answer where they began.
    *
-   * The caret moves past the text so an import that follows lands its chips where the words end.
-   * The anchor is the one the paste captured, in draft coordinates: the read that recovers a
-   * hidden text is a round trip, and the caret may have moved by then.
+   * `applyPaste` measures a copy's chip offsets from that answer. The anchor is the paste's own,
+   * captured before the text recovery's round trip.
    */
   const insertPastedWords = useCallback(
-    (text: string) => {
+    (text: string): number => {
       const draft = draftRef.current;
       const anchor = anchorRef.current ?? currentAnchor();
       const at = Math.min(anchor.start, draft.length);
@@ -622,6 +688,7 @@ export function ComposerField({
       anchorRef.current = { start: at + text.length, end: at + text.length };
       caretRef.current = at + text.length;
       rootRef.current?.focus();
+      return at;
     },
     // `currentAnchor` and the undo helpers read refs only, so the paste path stays one stable
     // function across renders.
@@ -631,34 +698,50 @@ export function ComposerField({
   /**
    * Write one paste's plan into the box: its words, then its files.
    *
-   * The words go in first and the chips after them, because the chips are what the desktop imports
-   * (a round trip), and only the words can be written on this frame. `insertChips` reads the anchor
-   * this leaves, so a paste of words and files keeps them in that order.
+   * The words go in first because only they can be written on this frame; the chips wait on the
+   * desktop import. A copy this page wrote carries each chip's place (`ClipboardPaste.placements`),
+   * held in `pendingChips` under this paste's identity; `insertChips` names it, writes the tokens
+   * at those places while the words still match, and otherwise lands them at the anchor. A paste
+   * with no offsets — every copy from another application — always lands at the anchor.
    */
   const applyPaste = useCallback(
-    (plan: ClipboardPaste, files: readonly File[]) => {
-      if (plan.words.length > 0) insertPastedWords(plan.words);
-      if (plan.paths.length > 0) latest.current.onPaths(plan.paths);
-      if (plan.importFiles) latest.current.onFiles(files);
+    (plan: ClipboardPaste, files: readonly File[], pasteId: number) => {
+      const before = draftRef.current;
+      const start =
+        plan.words.length > 0
+          ? insertPastedWords(plan.words)
+          : Math.min(
+              (anchorRef.current ?? currentAnchor()).start,
+              draftRef.current.length,
+            );
+      const end = start + plan.words.length;
+      if (before !== draftRef.current) adjustPending(before, draftRef.current);
+      if (plan.paths.length > 0) {
+        pendingChips.current.set(pasteId, {
+          draft: draftRef.current,
+          start,
+          end,
+          paths: plan.paths,
+          placements: plan.placements,
+        });
+      } else {
+        pendingChips.current.delete(pasteId);
+      }
+      if (plan.paths.length > 0) latest.current.onPaths(plan.paths, pasteId);
+      if (plan.importFiles) latest.current.onFiles(files, pasteId);
     },
-    [insertPastedWords],
+    [adjustPending, insertPastedWords],
   );
 
   /**
-   * A paste is files or it is words, never markup.
+   * A paste is files or words, never markup.
    *
-   * A clipboard holds one of three things (`planClipboardPaste`): a copy this application wrote (the
-   * words, the files, and the mention lines that name them), a snapshot out of a browser or a
-   * document (a sentence and a picture of it), or files alone. The first and last import the files
-   * as chips and keep only the words; the snapshot keeps only the words, because the picture is not
-   * an attachment anybody asked for. What no case does is let the browser paste HTML: a prompt is
-   * text, and another application's styles (and its own inline pictures) have no business inside this
-   * box.
+   * `planClipboardPaste` reads the three clipboard shapes — this page's own copy, a browser or
+   * document snapshot, files alone — and this side only refuses HTML: another application's styles
+   * and inline pictures have no business in a prompt.
    *
-   * A copy this page wrote is recognized first, by its exact text (`recallOwnCopy`): the words it
-   * stood for and the paths behind its chips come back as they were, so a cut or a copied message
-   * pastes back as the same sentence with the same files — including the case a clipboard reports as
-   * text alone, where the mention lines used to land in the box as prose.
+   * A copy this page wrote is recognized first, by its exact text (`recallOwnCopy`): its words and
+   * the paths behind its chips come back as they were, even when the clipboard reports text alone.
    */
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
     if (disabled) return;
@@ -677,8 +760,10 @@ export function ComposerField({
     // Where an import lands is where the caret is, and the import is a round trip: the anchor is
     // taken before anything is awaited.
     anchorRef.current = currentAnchor();
+    const pasteId = pasteSequence.current + 1;
+    pasteSequence.current = pasteId;
     if (files.length === 0) {
-      applyPaste(planClipboardPaste(pasted, [], own), files);
+      applyPaste(planClipboardPaste(pasted, [], own), files, pasteId);
       return;
     }
     void (async () => {
@@ -686,7 +771,7 @@ export function ComposerField({
       // words are read back through the desktop (`recoverPastedText`) — which is why the decision is
       // made on the text that is *actually* there rather than on what the page could see.
       const text = pasted.length > 0 ? pasted : await recoverPastedText();
-      applyPaste(planClipboardPaste(text, files, recallOwnCopy(text)), files);
+      applyPaste(planClipboardPaste(text, files, recallOwnCopy(text)), files, pasteId);
     })();
   };
 
@@ -713,21 +798,16 @@ export function ComposerField({
     const selected = selectionRange(root);
     if (selected === null) return null;
     const sentence = draftRef.current.slice(selected.start, selected.end);
-    const byToken = new Map(
-      latest.current.attachments.map((attachment) => [attachment.token, attachment]),
-    );
-    const paths: string[] = [];
-    for (const char of sentence) {
-      const attachment = byToken.get(char);
-      if (attachment !== undefined) paths.push(attachment.path);
-    }
-    if (paths.length === 0) return null;
+    const chips = chipPlacements(sentence, latest.current.attachments);
+    if (chips.paths.length === 0) return null;
     const words = draftProse(sentence);
     event.preventDefault();
-    event.clipboardData?.setData("text/plain", textWithFileMentions(words, paths));
+    event.clipboardData?.setData("text/plain", textWithFileMentions(words, chips.paths));
     // The event's own write is the text; the files can only go through the desktop, so the command
-    // repeats the text beside them (one clipboard replace rather than two writes racing).
-    void copyTextWithFiles(words, paths).catch(() => undefined);
+    // repeats the text beside them (one clipboard replace rather than two writes racing). The
+    // offsets say where each chip stood in the words: they have no room on the clipboard, and a
+    // paste of this same copy puts them back in their places (`applyPaste`).
+    void copyTextWithFiles(words, chips.paths, chips.placements).catch(() => undefined);
     return selected;
   };
 
@@ -749,11 +829,10 @@ export function ComposerField({
     const selected = writeSelection(event);
     if (selected === null) return;
     const draft = draftRef.current;
+    const next = `${draft.slice(0, selected.start)}${draft.slice(selected.end)}`;
     rememberEdit(draft, selected.start, false);
-    render(
-      `${draft.slice(0, selected.start)}${draft.slice(selected.end)}`,
-      selected.start,
-    );
+    render(next, selected.start);
+    adjustPending(draft, draftRef.current);
     latest.current.onDraftEdited();
     anchorRef.current = null;
     caretRef.current = selected.start;
@@ -772,23 +851,46 @@ export function ComposerField({
         anchorRef.current = { start, end };
         caretRef.current = end;
       },
-      insertChips: (records) => {
-        if (records.length === 0) return;
+      insertChips: (records, pasteId) => {
         const draft = draftRef.current;
+        if (records.length === 0) {
+          if (pasteId !== undefined) pendingChips.current.delete(pasteId);
+          return;
+        }
+        const pending =
+          pasteId === undefined ? undefined : pendingChips.current.get(pasteId);
+        if (pending !== undefined && pasteId !== undefined) {
+          pendingChips.current.delete(pasteId);
+        }
+        // A copy this page wrote says where its chips stood in the words the paste inserted. The
+        // offsets only describe the string the paste left, so they are used while the box still
+        // holds exactly that string; an edit in between sends the chips to the paste's anchor, the
+        // same place a clipboard from another application lands them.
+        if (pending !== undefined && pending.draft === draft) {
+          paintImportedChips(
+            draft,
+            pending.start,
+            insertPastedChips(draft, records, pending),
+            pending.end + records.length,
+            records,
+          );
+          return;
+        }
         const anchor = anchorRef.current ?? caretAnchor();
         const at = Math.min(anchor.start, draft.length);
         const to = Math.min(Math.max(anchor.end, at), draft.length);
         const tokens = records.map((record) => record.token).join("");
-        rememberEdit(draft, at, false);
-        render(`${draft.slice(0, at)}${tokens}${draft.slice(to)}`, at + tokens.length, records);
-        latest.current.onDraftEdited();
-        anchorRef.current = null;
-        caretRef.current = at + tokens.length;
-        rootRef.current?.focus();
+        paintImportedChips(
+          draft,
+          at,
+          `${draft.slice(0, at)}${tokens}${draft.slice(to)}`,
+          at + tokens.length,
+          records,
+        );
       },
       focus: () => rootRef.current?.focus(),
     }),
-    [rememberEdit, render],
+    [paintImportedChips],
   );
 
   return (

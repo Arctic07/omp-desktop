@@ -25,7 +25,11 @@ let writtenCopy: (WrittenFileCopy & { text: string }) | null = null;
 export function recallOwnCopy(text: string): WrittenFileCopy | null {
   if (writtenCopy === null || writtenCopy.paths.length === 0) return null;
   if (!isWrittenCopy(text, writtenCopy.text)) return null;
-  return { words: writtenCopy.words, paths: writtenCopy.paths };
+  return {
+    words: writtenCopy.words,
+    paths: writtenCopy.paths,
+    placements: writtenCopy.placements,
+  };
 }
 
 export async function copyText(value: string): Promise<boolean> {
@@ -49,6 +53,10 @@ export async function copyText(value: string): Promise<boolean> {
  * files are named in the text as mention lines, so a target that takes only text still learns which
  * files went with it.
  *
+ * `placements` is where each chip stood inside `text`; the clipboard has no room for it, so it is
+ * remembered beside the copy (`lib/file-mention.ts::WrittenFileCopy`) and restored by a paste of it.
+ * The offsets are clamped to the words the clipboard ends up holding.
+ *
  * The copy is remembered on the way out, whichever write took it — and it stays remembered even
  * when both writes fail. The record is not a claim about the clipboard; it is what makes a paste
  * that comes back with exactly these words this page's own copy (`recallOwnCopy`), and a caller
@@ -58,9 +66,16 @@ export async function copyText(value: string): Promise<boolean> {
 export async function copyTextWithFiles(
   text: string,
   files: readonly string[],
+  placements: readonly number[] = [],
 ): Promise<boolean> {
   const written = textWithFileMentions(text, files)
-  writtenCopy = { text: written, words: text.trimEnd(), paths: files }
+  const words = text.trimEnd()
+  writtenCopy = {
+    text: written,
+    words,
+    paths: files,
+    placements: placements.map((at) => Math.min(Math.max(at, 0), words.length)),
+  }
   if (files.length > 0) {
     try {
       if (await copyTextAndFiles(written, files)) return true

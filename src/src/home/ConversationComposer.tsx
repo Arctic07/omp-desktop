@@ -492,14 +492,20 @@ export function ConversationComposer({ id, className }: ConversationComposerProp
    * go on the end of that draft instead of being typed into the box now on screen — the two
    * conversations keep their own words and their own files.
    */
-  const placeChips = useCallback((key: string, records: readonly ComposerAttachment[]) => {
-    if (records.length === 0) return;
-    if (draftKeyRef.current === key) {
-      field.current?.insertChips(records);
-      return;
-    }
-    appendComposerDraftChips(key, records.map((record) => record.token).join(""));
-  }, []);
+  const placeChips = useCallback(
+    (key: string, records: readonly ComposerAttachment[], pasteId?: number) => {
+      if (records.length === 0) {
+        if (draftKeyRef.current === key) field.current?.insertChips(records, pasteId);
+        return;
+      }
+      if (draftKeyRef.current === key) {
+        field.current?.insertChips(records, pasteId);
+        return;
+      }
+      appendComposerDraftChips(key, records.map((record) => record.token).join(""));
+    },
+    [],
+  );
 
   /**
    * Take files into this prompt, from the picker, a paste or a drop.
@@ -511,22 +517,22 @@ export function ConversationComposer({ id, className }: ConversationComposerProp
    * notice line, where the reader is already looking.
    */
   const attachPaths = useCallback(
-    async (paths: readonly string[]) => {
+    async (paths: readonly string[], pasteId?: number) => {
       const key = draftKey;
       const imported = await addAttachmentPaths(key, paths);
       reportRefusal(imported.refusal, sessionRef.current);
-      placeChips(key, imported.added);
+      placeChips(key, imported.added, pasteId);
     },
     [draftKey, placeChips, reportRefusal],
   );
 
   /** Files pasted into the field: bytes the clipboard holds, which the desktop stages for us. */
   const attachFiles = useCallback(
-    async (files: readonly File[]) => {
+    async (files: readonly File[], pasteId?: number) => {
       const key = draftKey;
       const imported = await addClipboardFiles(key, sessionRef.current, files);
       reportRefusal(imported.refusal, sessionRef.current);
-      placeChips(key, imported.added);
+      placeChips(key, imported.added, pasteId);
     },
     [draftKey, placeChips, reportRefusal],
   );
@@ -890,10 +896,10 @@ export function ConversationComposer({ id, className }: ConversationComposerProp
             // chip the reader deleted comes back with the character that names it.
             onRestoreDraft={(draft, records) => putComposerDraft(draftKey, draft, records)}
             onRemoveAttachment={(token) => removeAttachment(draftKey, token)}
-            onFiles={(files) => void attachFiles(files)}
+            onFiles={(files, pasteId) => void attachFiles(files, pasteId)}
             // A paste of a copy this page wrote names its files itself, so they are attached by
             // path — the reader's own file, not a second copy of its bytes.
-            onPaths={(paths) => void attachPaths(paths)}
+            onPaths={(paths, pasteId) => void attachPaths(paths, pasteId)}
             onHistoryPrevious={() => stepHistory("up")}
             onHistoryNext={() => stepHistory("down")}
             onDraftEdited={endHistoryWalk}

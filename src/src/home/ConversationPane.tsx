@@ -36,7 +36,7 @@ import { ConversationFeed, FEED_VIRTUALIZATION_THRESHOLD } from "@/home/Conversa
 import { isArrival } from "@/home/conversation-arrivals";
 import { RewindDialog } from "@/home/RewindDialog";
 import { buildRows, toolRunOutcomes, type TranscriptRow, type TurnTail } from "@/home/conversation-rows";
-import { messageSegments } from "@/state/composer-draft";
+import { messagePlacements, messageSegments } from "@/state/composer-draft";
 import { continueFromEntry } from "@/state/session-actions";
 import {
   canRewindMessage,
@@ -537,6 +537,13 @@ const UserRow = memo(function UserRow({
     [message.attachments],
   );
   /**
+   * Where each file's chip stood in `words`, for the copy taken from the row's own control.
+   *
+   * The transcript's copy is words and files, never the chip characters; `messagePlacements` is the
+   * one reading of the segments that knows the places.
+   */
+  const placements = useMemo(() => messagePlacements(segments), [segments]);
+  /**
    * A pasted transcript, a stack trace or a whole diff is one bubble that can run for a screenful;
    * the row keeps `COLLAPSED_LINES` of it until the reader asks for the rest.
    *
@@ -626,7 +633,7 @@ const UserRow = memo(function UserRow({
               />
             </button>
           ) : null}
-          <CopyButton text={words} files={files} />
+          <CopyButton text={words} files={files} placements={placements} />
           {/* The reader's own message is the one thing in the transcript they can take back: the
               engine rewrites the conversation to end before it and the text returns to the field.
               Only a row the engine wrote has an address to cut at (`canRewindMessage`). */}

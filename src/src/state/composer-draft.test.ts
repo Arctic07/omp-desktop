@@ -3,20 +3,25 @@ import { test } from 'node:test'
 
 import {
   chipLabel,
+  chipPlacements,
   createChipToken,
   draftAttachments,
   draftFromMessage,
   draftProse,
+  insertPastedChips,
   isChipToken,
+  messagePlacements,
   messageSegments,
   pastedFileName,
   pastedMimeType,
   planClipboardPaste,
+  shiftPasteSpan,
   splitComposerDraft,
   type ComposerAttachment,
 } from './composer-draft.ts'
 import type { ChatAttachmentRef } from '../api/session-types.ts'
 import { textWithFileMentions } from '../lib/file-mention.ts'
+import { markerOffsets } from '../lib/selection-words.ts'
 
 /**
  * The composer's draft: one string that holds the reader's words and the files they carry.
@@ -102,13 +107,20 @@ test('a paste that brought files is read for what it is, not for how many pixels
   assert.deepEqual(planClipboardPaste('一段话', [image]), {
     words: '一段话',
     paths: [],
+    placements: [],
     importFiles: false,
   })
   // A file copied in Explorer has no words with it: the files are the paste.
-  assert.deepEqual(planClipboardPaste('', [image]), { words: '', paths: [], importFiles: true })
+  assert.deepEqual(planClipboardPaste('', [image]), {
+    words: '',
+    paths: [],
+    placements: [],
+    importFiles: true,
+  })
   assert.deepEqual(planClipboardPaste('   ', [image]), {
     words: '   ',
     paths: [],
+    placements: [],
     importFiles: true,
   })
   // Words beside a file that is not a picture are the reader's words *plus* a file they meant to
@@ -116,17 +128,20 @@ test('a paste that brought files is read for what it is, not for how many pixels
   assert.deepEqual(planClipboardPaste('看看这个', [document]), {
     words: '看看这个',
     paths: [],
+    placements: [],
     importFiles: true,
   })
   assert.deepEqual(planClipboardPaste('看看这个', [image, document]), {
     words: '看看这个',
     paths: [],
+    placements: [],
     importFiles: true,
   })
   // A clipboard with no file list is words and nothing else.
   assert.deepEqual(planClipboardPaste('看看这个', []), {
     words: '看看这个',
     paths: [],
+    placements: [],
     importFiles: false,
   })
 })
@@ -138,18 +153,26 @@ test('a copy made here keeps its files: the words come back without the name wri
   assert.deepEqual(planClipboardPaste(copied, [{ name: 'shot.png', type: 'image/png' }]), {
     words: 'history.rs 测试看这张',
     paths: [],
+    placements: [],
     importFiles: true,
   })
   // A copy that was nothing but chips is the files, with no sentence left to insert.
   assert.deepEqual(planClipboardPaste('@C:\\work\\shot.png', [{ name: 'shot.png', type: 'image/png' }]), {
     words: '',
     paths: [],
+    placements: [],
     importFiles: true,
   })
 })
 
 test('a copy this page wrote comes back as its own words and its own files, with or without a file list', () => {
-  const own = { words: 'history.rs 测试看这张', paths: ['C:\\work\\shot.png'] }
+  // The offsets are what the clipboard cannot carry: the chip stood at the fifth character of the
+  // words, and the page remembers that beside its copy (`lib/clipboard.ts::copyTextWithFiles`).
+  const own = {
+    words: 'history.rs 测试看这张',
+    paths: ['C:\\work\\shot.png'],
+    placements: [5],
+  }
   const copied = textWithFileMentions(own.words, own.paths)
 
   // The clipboard that reports the copy's text and its file list: the paths are the copy's own, so
@@ -157,6 +180,7 @@ test('a copy this page wrote comes back as its own words and its own files, with
   assert.deepEqual(planClipboardPaste(copied, [{ name: 'shot.png', type: 'image/png' }], own), {
     words: own.words,
     paths: own.paths,
+    placements: own.placements,
     importFiles: false,
   })
   // The same copy reported as text alone — which is what a clipboard with no file list on it looks
@@ -164,15 +188,160 @@ test('a copy this page wrote comes back as its own words and its own files, with
   assert.deepEqual(planClipboardPaste(copied, [], own), {
     words: own.words,
     paths: own.paths,
+    placements: own.placements,
     importFiles: false,
   })
   // A copy that was nothing but a chip has no words to write, only the file to attach.
-  const chipOnly = { words: '', paths: own.paths }
+  const chipOnly = { words: '', paths: own.paths, placements: [0] }
   assert.deepEqual(planClipboardPaste(textWithFileMentions('', own.paths), [], chipOnly), {
     words: '',
     paths: own.paths,
+    placements: chipOnly.placements,
     importFiles: false,
   })
+})
+
+test('a copied slice names each chip and the prose offset it stood at', () => {
+  const shot = file('shot.png', '\ue001')
+  const notes = file('notes.md', '\ue002')
+  const sentence = '看这张 \ue001 和 \ue002，谢谢'
+  const { paths, placements } = chipPlacements(sentence, [shot, notes])
+  assert.deepEqual(paths, [shot.path, notes.path])
+  // Prose: `看这张  和 ，谢谢` — four characters before the first chip, seven before the second.
+  assert.deepEqual(placements, [4, 7])
+  // A token with no record is this application's own character, not one of the reader's: it is
+  // dropped from the prose just as `draftProse` drops it, and no chip is named for it.
+  assert.deepEqual(chipPlacements('前\ue009后', []), { paths: [], placements: [] })
+})
+
+test('a pasted copy writes its chips back where its words carried them', () => {
+  const draft = 'Xab cd efY'
+  const positions = {
+    paths: ['C:\\work\\p.png', 'C:\\work\\q.png'],
+    placements: [3, 6],
+    start: 1,
+    end: 9,
+  }
+  const records = [
+    { token: '\ue001', path: 'C:\\work\\p.png' },
+    { token: '\ue002', path: 'C:\\work\\q.png' },
+  ]
+  // `X` then the pasted words `ab cd ef` then `Y`: the chips stood before `cd` and before `ef`.
+  assert.equal(
+    insertPastedChips(draft, records, positions),
+    'Xab \ue001cd \ue002efY',
+  )
+  // The answer does not have to arrive in chip order: a record's own path decides its place.
+  assert.equal(
+    insertPastedChips(draft, [
+      { token: '\ue002', path: 'C:\\work\\q.png' },
+      { token: '\ue001', path: 'C:\\work\\p.png' },
+    ], positions),
+    'Xab \ue001cd \ue002efY',
+  )
+  // A record the copy never named goes at the end of the pasted words, not nowhere.
+  assert.equal(
+    insertPastedChips(
+      draft,
+      [...records, { token: '\ue003', path: 'C:\\work\\r.png' }],
+      positions,
+    ),
+    'Xab \ue001cd \ue002ef\ue003Y',
+  )
+  // An offset past the words is clamped to their end: a copy trims the words' trailing space.
+  assert.equal(
+    insertPastedChips(draft, [records[0]!], { ...positions, placements: [99] }),
+    'Xab cd ef\ue001Y',
+  )
+  // Two chips at one offset keep the import's order.
+  assert.equal(
+    insertPastedChips(
+      draft,
+      records,
+      { ...positions, placements: [0, 0], start: 1, end: 9 },
+    ),
+    'X\ue001\ue002ab cd efY',
+  )
+})
+
+test('a chip copied out of a sentence pastes back into the same place in another one', () => {
+  // The field's own copy: the words without the chip, and the offset the chip stood at.
+  const shot = file('shot.png', '\ue001')
+  const source = '看这张 \ue001 和后面'
+  const chips = chipPlacements(source, [shot])
+  const own = {
+    words: draftProse(source),
+    paths: chips.paths,
+    placements: chips.placements,
+  }
+  const plan = planClipboardPaste(textWithFileMentions(own.words, own.paths), [], own)
+  // Pasting `前后`, with the caret between the two characters: the chip belongs between the words'
+  // own two spaces, not after `后`.
+  const target = '前后'
+  const start = 1
+  const pasted = `${target.slice(0, start)}${plan.words}${target.slice(start)}`
+  assert.equal(
+    insertPastedChips(pasted, [{ token: '\ue002', path: shot.path }], {
+      paths: plan.paths,
+      placements: plan.placements,
+      start,
+      end: start + plan.words.length,
+    }),
+    '前看这张 \ue002 和后面后',
+  )
+})
+
+test('a chip after an astral character keeps its offset in code units', () => {
+  const shot = file('shot.png', '\ue001')
+  // The emoji is one code point but two UTF-16 units; the draft's slice indices count the units.
+  const { paths, placements } = chipPlacements('😀\ue001看', [shot])
+  assert.deepEqual(paths, [shot.path])
+  assert.deepEqual(placements, [2])
+  // Inserting at 2 keeps the emoji's surrogate pair whole.
+  assert.equal(
+    insertPastedChips('😀看', [{ token: '\ue002', path: shot.path }], {
+      paths: [shot.path],
+      placements: [2],
+      start: 0,
+      end: 3,
+    }),
+    '😀\ue002看',
+  )
+})
+
+test('an edit outside the pasted words moves their offsets; an edit inside drops them', () => {
+  const span = { start: 4, end: 7 }
+  // Typing before the block moves it whole.
+  assert.deepEqual(shiftPasteSpan(span, '0123456789', 'XX0123456789'), {
+    start: 6,
+    end: 9,
+  })
+  // Typing at its start moves it; typing at its end does not.
+  assert.deepEqual(shiftPasteSpan(span, '0123456789', '0123X456789'), {
+    start: 5,
+    end: 8,
+  })
+  assert.deepEqual(shiftPasteSpan(span, '0123456789', '0123456X789'), span)
+  // An edit touching the pasted words makes their offsets describe a string that is gone.
+  assert.equal(shiftPasteSpan(span, '0123456789', '0123X56789'), null)
+})
+
+test('a message copy derives one offset per attachment from its segments', () => {
+  const shot = sent('shot.png')
+  const notes = sent('notes.md')
+  const segments = messageSegments('看这张 \ue005 和 \ue006，谢谢', [shot, notes])
+  assert.deepEqual(messagePlacements(segments), [4, 7])
+  // A file with no placeholder left is appended after the words, so both offsets are its end.
+  assert.deepEqual(messagePlacements(messageSegments('看这张图', [shot, notes])), [4, 4])
+})
+
+test('the field and the transcript put a chip at the same prose offset', () => {
+  const shot = file('shot.png', '\ue001')
+  // The same sentence read from the draft and from the rendered message: no space before the chip,
+  // one after it. The field's draft offset and the feed's marked-run offset must agree.
+  const field = chipPlacements('看这张\ue001 和', [shot]).placements[0]
+  const feed = markerOffsets(['看这张', ' 和'], '看这张 和')[0]
+  assert.equal(field, feed)
 })
 
 /** One file a message carries, as the transcript hands it back: no token, only where it lives. */

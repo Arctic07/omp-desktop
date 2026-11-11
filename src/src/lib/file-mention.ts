@@ -44,6 +44,17 @@ export function isWrittenCopy(text: string, written: string): boolean {
 export interface WrittenFileCopy {
   words: string
   paths: readonly string[]
+  /**
+   * Offset in `words` at which each path's chip stood, aligned with `paths`.
+   *
+   * A clipboard carries words and a file list, never the place a chip stood inside them: the text
+   * is what a reader pastes into another application, and a private-use character marking a chip's
+   * position would arrive there as invisible junk. So the side that wrote the copy remembers the
+   * offsets here instead, and a paste of that same copy is the one case where they can be restored
+   * (`lib/clipboard.ts::recallOwnCopy`, `state/composer-draft.ts::insertPastedChips`). Absent for
+   * copies that never knew their chips' positions, or that had no chips.
+   */
+  placements?: readonly number[]
 }
 
 /**

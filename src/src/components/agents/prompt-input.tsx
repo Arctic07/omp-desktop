@@ -134,14 +134,15 @@ export interface PromptInputProps {
   onRestoreDraft: (draft: string, attachments: readonly ComposerAttachment[]) => void;
   onRemoveAttachment?: (token: string) => void;
   /** Files pasted into the field, which the caller imports and hands back as chips. */
-  onFiles?: (files: readonly File[]) => void;
+  onFiles?: (files: readonly File[], pasteId?: number) => void;
   /**
    * Paths a pasted copy named itself — a copy this page wrote — which the caller attaches as files.
    *
    * The names are the reader's own, so a message copied and pasted back carries its files rather
-   * than a second copy of their bytes (`lib/clipboard.ts::recallOwnCopy`).
+   * than a second copy of their bytes (`lib/clipboard.ts::recallOwnCopy`). `pasteId` names the paste
+   * whose import this is, so its chips can land where its own words were.
    */
-  onPaths?: (paths: readonly string[]) => void;
+  onPaths?: (paths: readonly string[], pasteId?: number) => void;
   /** Up/Down over earlier prompts; each answers whether it consumed the key. */
   onHistoryPrevious?: () => boolean;
   onHistoryNext?: () => boolean;
@@ -330,7 +331,7 @@ export function PromptInput({
     ref,
     () => ({
       captureAnchor: () => field.current?.captureAnchor(),
-      insertChips: (records) => field.current?.insertChips(records),
+      insertChips: (records, pasteId) => field.current?.insertChips(records, pasteId),
       focus: () => field.current?.focus(),
     }),
     [],
@@ -505,7 +506,7 @@ export function PromptInput({
         onValueChange={setValue}
         onRestoreDraft={onRestoreDraft}
         onRemoveAttachment={(token) => onRemoveAttachment?.(token)}
-        onFiles={(files) => onFiles?.(files)}
+        onFiles={(files, pasteId) => onFiles?.(files, pasteId)}
         onPaths={onPaths}
         onHistoryPrevious={onHistoryPrevious}
         onHistoryNext={onHistoryNext}

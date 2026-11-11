@@ -15,7 +15,7 @@ import { followFloor, stopFollowing } from "@/lib/follow-scroll";
 import { useCopy } from "@/lib/i18n";
 import { copyTextWithFiles } from "@/lib/clipboard";
 import { textWithFileMentions } from "@/lib/file-mention";
-import { selectionWords } from "@/lib/selection-words";
+import { selectionCopy } from "@/lib/selection-words";
 import { cn } from "@/lib/utils";
 import { COPY } from "@/home/homeCopy";
 import { ConversationFootRow } from "@/home/ConversationFootRow";
@@ -463,20 +463,20 @@ export function ConversationFeed({
     if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return;
     const range = selection.getRangeAt(0);
     if (!viewport.contains(range.commonAncestorContainer)) return;
-    const paths = new Set<string>();
-    for (const chip of viewport.querySelectorAll<HTMLElement>("[data-copy-file]")) {
-      if (!range.intersectsNode(chip)) continue;
-      const path = chip.dataset.copyFile;
-      if (path !== undefined) paths.add(path);
-    }
-    if (paths.size === 0) return;
-    const files = [...paths];
-    const words = selectionWords(range, "[data-copy-file]");
+    const selected = selectionCopy(range);
+    if (selected.files.length === 0) return;
     event.preventDefault();
-    event.clipboardData?.setData("text/plain", textWithFileMentions(words, files));
+    event.clipboardData?.setData(
+      "text/plain",
+      textWithFileMentions(selected.words, selected.files),
+    );
     // The event's own write is the text; the files can only go through the desktop, whose command
-    // repeats the text beside them so the clipboard is replaced once rather than twice.
-    void copyTextWithFiles(words, files).catch(() => undefined);
+    // repeats the text beside them so the clipboard is replaced once rather than twice. The offsets
+    // ride beside the copy rather than in its text, so a paste of this copy puts the chips back
+    // where they stood.
+    void copyTextWithFiles(selected.words, selected.files, selected.placements).catch(
+      () => undefined,
+    );
   }, []);
 
   /**

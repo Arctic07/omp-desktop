@@ -127,6 +127,39 @@ export function draftAttachments(
     .filter((attachment): attachment is ComposerAttachment => attachment !== null);
 }
 
+/**
+ * The files a draft slice names, and the prose offset each one stood at.
+ *
+ * A copy of a selection writes the words without their chips' characters — those code points are
+ * this application's own vocabulary and would paste into another application as invisible junk —
+ * so the positions have to travel beside the copy rather than inside it (`WrittenFileCopy.placements`
+ * in `lib/file-mention.ts`). `prose` counts exactly what `draftProse` keeps: a token, with or
+ * without a record, is not one of the reader's characters.
+ */
+export function chipPlacements(
+  sentence: string,
+  attachments: readonly ComposerAttachment[],
+): { paths: string[]; placements: number[] } {
+  const byToken = new Map(
+    attachments.map((attachment) => [attachment.token, attachment]),
+  );
+  const paths: string[] = [];
+  const placements: number[] = [];
+  let prose = 0;
+  for (const char of sentence) {
+    const attachment = isChipToken(char) ? byToken.get(char) : undefined;
+    if (attachment !== undefined) {
+      paths.push(attachment.path);
+      placements.push(prose);
+      continue;
+    }
+    // `char` is one code point but `draftProse` and the draft's slice indices count UTF-16 code
+    // units: an astral character before a chip occupies two of them.
+    if (!isChipToken(char)) prose += char.length;
+  }
+  return { paths, placements };
+}
+
 /** The attachments a draft no longer names, for a store that should stop holding them. */
 export function orphanAttachments(
   text: string,
@@ -190,6 +223,28 @@ export function messageSegments(
     segments.push({ text: "", attachment });
   }
   return segments;
+}
+
+/**
+ * Where each file's chip stood in the words of a message, as a copy from the row's own control
+ * needs it.
+ *
+ * `messageSegments` has already placed every attachment — a file with no placeholder left is
+ * appended after the words — so the answer is one offset per attachment, in the order the message
+ * carries them. A text segment contributes its own length; a chip contributes the prose collected
+ * before it.
+ */
+export function messagePlacements(segments: readonly MessageSegment[]): number[] {
+  let at = 0;
+  const placements: number[] = [];
+  for (const segment of segments) {
+    if (segment.attachment === null) {
+      at += segment.text.length;
+      continue;
+    }
+    placements.push(at);
+  }
+  return placements;
 }
 
 /** A draft rebuilt from a sent message: its words with fresh chip tokens, and the records behind them. */
@@ -292,6 +347,14 @@ export interface ClipboardPaste {
    * neither is read back out of the text, and no chapter of the paste has to guess.
    */
   paths: readonly string[]
+  /**
+   * Offset in `words` each path's chip stood at, aligned with `paths`.
+   *
+   * Empty when the paste did not carry that knowledge — every clipboard from another application,
+   * and the copies this page made before it remembered placements. Then the files land at the
+   * paste's anchor, one after the other, which is the only placement the clipboard itself offers.
+   */
+  placements: readonly number[]
   /** Whether the clipboard's own bytes are files the box has to import. */
   importFiles: boolean
 }
@@ -308,11 +371,11 @@ export interface ClipboardPaste {
  * else (Explorer's file list, a picture out of another chat app) is the files.
  *
  * `own` is the same first shape with its provenance intact: the page still remembers the copy it
- * wrote, so its words and paths are taken as they are rather than recovered from the text. That is
- * the branch a cut-and-paste or copy-and-paste *inside* this app takes, and it is why a chip comes
- * back as a chip even when the clipboard hands the page no file list at all. The caller only passes
- * one when `text` *is* that copy (`lib/clipboard.ts::recallOwnCopy`), which is the one place that
- * comparison can be made: it holds the text that was written.
+ * wrote, so its words, paths and chip offsets are taken as they are rather than recovered from the
+ * text. That is the branch a cut-and-paste or copy-and-paste *inside* this app takes, and it is why
+ * a chip comes back as a chip even when the clipboard hands the page no file list at all. The caller
+ * only passes one when `text` *is* that copy (`lib/clipboard.ts::recallOwnCopy`), which is the one
+ * place that comparison can be made: it holds the text that was written.
  *
  * Telling the first apart from the second is why the mention lines are written at all: without them
  * a message copied from this app and a sentence copied from a browser are the same clipboard — words
@@ -324,15 +387,132 @@ export function planClipboardPaste(
   own: WrittenFileCopy | null = null,
 ): ClipboardPaste {
   if (own !== null && own.paths.length > 0) {
-    return { words: own.words, paths: own.paths, importFiles: false };
+    return {
+      words: own.words,
+      paths: own.paths,
+      placements:
+        own.placements !== undefined && own.placements.length === own.paths.length
+          ? own.placements
+          : [],
+      importFiles: false,
+    };
   }
-  if (files.length === 0) return { words: text, paths: [], importFiles: false };
+  if (files.length === 0) return { words: text, paths: [], placements: [], importFiles: false };
   const names = files.map((file) => file.name);
   if (carriesOwnFileMentions(text, names)) {
-    return { words: textWithoutFileMentions(text, names), paths: [], importFiles: true };
+    return {
+      words: textWithoutFileMentions(text, names),
+      paths: [],
+      placements: [],
+      importFiles: true,
+    };
   }
   const snapshot =
     text.trim().length > 0 &&
     files.every((file) => file.type.trim().toLowerCase().startsWith("image/"));
-  return { words: text, paths: [], importFiles: !snapshot };
+  return { words: text, paths: [], placements: [], importFiles: !snapshot };
+}
+
+/** The pasted words' place in the draft, and the chips the copy says stood inside them. */
+export interface PastedChipPositions {
+  /** The paths the copy named, in the order its chips stood. */
+  paths: readonly string[]
+  /** Offset in the pasted words at which each path's chip stood, aligned with `paths`. */
+  placements: readonly number[]
+  /** Where the pasted words begin in the draft. */
+  start: number
+  /** Where the pasted words end in the draft. */
+  end: number
+}
+
+/** A range in a draft, without the words' contents. */
+export interface DraftSpan {
+  start: number
+  end: number
+}
+
+/**
+ * Carry a pasted words' span across an edit, or answer null when the edit touched those words.
+ *
+ * The chip offsets are measured from `start` inside the pasted block, so an edit before the block
+ * moves both ends, an edit after it changes nothing, and an edit that overlaps the block makes the
+ * offsets describe a string that no longer exists. The edit is found by the common prefix and
+ * suffix, which is enough for every text edit a field produces: a keystroke, a delete, a cut, a
+ * paste, a drop.
+ */
+export function shiftPasteSpan(
+  span: DraftSpan,
+  before: string,
+  after: string,
+): DraftSpan | null {
+  let prefix = 0;
+  const limit = Math.min(before.length, after.length);
+  while (prefix < limit && before.charCodeAt(prefix) === after.charCodeAt(prefix)) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before.charCodeAt(before.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)
+  ) {
+    suffix += 1;
+  }
+  const changeStart = prefix;
+  const changeEnd = before.length - suffix;
+  const delta = after.length - before.length;
+  if (changeStart >= span.end) return span;
+  if (changeEnd <= span.start) {
+    return { start: span.start + delta, end: span.end + delta };
+  }
+  return null;
+}
+
+/**
+ * Write imported chips back into the words a paste inserted, at the offsets the copy remembered.
+ *
+ * A copy's text cannot say where its chips stood, so the paste that carries this page's own copy
+ * (`planClipboardPaste`'s `paths`) is the one that can put them back: `records` are the files the
+ * desktop just imported, one per `paths` entry, and each token goes at `start + its placement`.
+ * `placements` is aligned with `paths`; a record whose path has no offset left — the clipboard
+ * named a file the import skipped, or the caller attached something else — goes at the end of the
+ * pasted words rather than nowhere. The offsets are clamped to the pasted words, because a copy
+ * trims their trailing space and the paste must not write outside the block it describes.
+ *
+ * Chips at the same offset keep `records`' order: the token inserted first ends up leftmost.
+ */
+export function insertPastedChips(
+  draft: string,
+  records: readonly { token: string; path: string }[],
+  positions: PastedChipPositions,
+): string {
+  const used = new Set<number>();
+  const insertions = records.map((record, order) => {
+    const occurrence = positions.paths.findIndex(
+      (path, index) => path === record.path && !used.has(index),
+    );
+    const offset = occurrence < 0 ? undefined : positions.placements[occurrence];
+    if (occurrence < 0 || offset === undefined) {
+      return { token: record.token, at: positions.end, order };
+    }
+    used.add(occurrence);
+    return {
+      token: record.token,
+      at: Math.min(
+        Math.max(positions.start + offset, positions.start),
+        positions.end,
+      ),
+      order,
+    };
+  });
+
+  // Insertion back to front keeps every earlier offset valid. Sorting first means the import's
+  // answer does not have to arrive in chip order; the record's own order only breaks a tie, where
+  // the token inserted first ends up leftmost.
+  insertions.sort((left, right) => left.at - right.at || left.order - right.order);
+  let text = draft;
+  for (let at = insertions.length - 1; at >= 0; at -= 1) {
+    const insertion = insertions[at];
+    if (insertion === undefined) continue;
+    text = `${text.slice(0, insertion.at)}${insertion.token}${text.slice(insertion.at)}`;
+  }
+  return text;
 }

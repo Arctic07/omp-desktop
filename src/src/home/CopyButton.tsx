@@ -12,6 +12,9 @@ const COPIED_MS = 1000;
 /** A message that carried no files keeps one empty list across renders. */
 const NO_FILES: readonly string[] = [];
 
+/** The same for a message whose chips have no remembered offsets. */
+const NO_PLACEMENTS: readonly number[] = [];
+
 /**
  * The copy action of the transcript, wherever it stands.
  *
@@ -28,11 +31,18 @@ const NO_FILES: readonly string[] = [];
 export function CopyButton({
   text,
   files = NO_FILES,
+  placements = NO_PLACEMENTS,
   className,
 }: {
   text: string
   /** The files this message carried, in the order it named them. */
   files?: readonly string[]
+  /**
+   * Offset in `text` at which each file's chip stood, aligned with `files`.
+   *
+   * It rides beside the copy (`lib/clipboard.ts`) so a paste into the composer restores the places.
+   */
+  placements?: readonly number[]
   className?: string
 }) {
   const copy = useCopy(COPY);
@@ -51,7 +61,7 @@ export function CopyButton({
     if (timer.current !== undefined) window.clearTimeout(timer.current);
     setCopied(false);
     setFailed(false);
-    void copyTextWithFiles(text, files).then((ok) => {
+    void copyTextWithFiles(text, files, placements).then((ok) => {
       if (!ok) {
         setFailed(true);
         return;
@@ -62,7 +72,7 @@ export function CopyButton({
         timer.current = undefined;
       }, COPIED_MS);
     });
-  }, [files, text]);
+  }, [files, placements, text]);
 
   const label = copied ? copy.copiedAction : copy.copyAction;
 
