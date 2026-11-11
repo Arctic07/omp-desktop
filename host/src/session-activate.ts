@@ -226,7 +226,11 @@ export async function activateSession(
     }),
     ui: new UiBridge(
       events,
-      { selectOptionLabel: port.sdk.selectOptionLabel, theme: port.sdk.theme },
+      {
+        selectOptionLabel: port.sdk.selectOptionLabel,
+        theme: port.sdk.theme,
+        htmlForm: port.sdk.htmlForm,
+      },
       configuredUiTimeoutMs(),
     ),
     lastActivityMs: Date.now(),

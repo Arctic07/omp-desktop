@@ -16,6 +16,8 @@ import { helloChecks } from './harness.ts'
 import type { Report, Scenario } from './harness.ts'
 import { OMP_DESKTOP_SMOKE_MODEL, OMP_DESKTOP_SMOKE_PROVIDER, OMP_DESKTOP_SMOKE_THINKING } from './fixtures.ts'
 import { historyScenarios } from './scenarios/history.ts'
+import { askFormScenarios } from './scenarios/ask-form.ts'
+import { oldDataScenarios } from './scenarios/old-data.ts'
 import { modelsScenarios } from './scenarios/models.ts'
 import { pluginsScenarios } from './scenarios/plugins.ts'
 import { rewindScenarios } from './scenarios/rewind.ts'
@@ -47,6 +49,8 @@ export const SELF_HANDSHAKE: Record<string, true> = { preready: true }
  * provider instead of the dead port. Opt-in, and named explicitly on the command line.
  */
 export const MOCK_SCENARIOS: ReadonlySet<string> = new Set([
+  'ask-form',
+  'old-data',
   'write-guard',
   'rewind',
   'vibe',
@@ -60,6 +64,8 @@ export const scenarios: Record<string, Scenario> = {
   // The groups that live in their own modules. The table is still the one place a scenario is
   // named, so the driver's list and this record cannot drift apart.
   ...historyScenarios,
+  ...askFormScenarios,
+  ...oldDataScenarios,
   ...modelsScenarios,
   ...pluginsScenarios,
   ...rewindScenarios,

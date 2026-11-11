@@ -5,6 +5,7 @@ import {
 } from "@/components/agents/approval-card";
 import { ChoiceDialog } from "@/home/ChoiceDialog";
 import { DialogAnswerField, SecretDialogAnswerField } from "@/home/DialogAnswerField";
+import { FormCard } from "@/home/FormCard";
 import type { UiAskQuestion, UiAskResult, UiRequest, UiResponse } from "@/api/session-types";
 import { promptTextWithFiles } from "@/lib/file-mention";
 import { useCopy } from "@/lib/i18n";
@@ -120,6 +121,17 @@ function DialogCard({
         questions={request.questions.map(toCardQuestion)}
         status="pending"
         onSubmit={(answers) => onAnswer({ kind: "submit", results: toAskResults(request.questions, answers) })}
+      />
+    );
+  }
+
+  if (request.method === "form") {
+    return (
+      <FormCard
+        sections={request.sections}
+        fields={request.fields}
+        onSubmit={(answers) => onAnswer({ answers })}
+        onCancel={() => onAnswer({ cancelled: true })}
       />
     );
   }

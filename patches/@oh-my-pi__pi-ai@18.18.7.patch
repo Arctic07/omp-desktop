@@ -1,5 +1,5 @@
 diff --git a/dist/types/error/flags.d.ts b/dist/types/error/flags.d.ts
-index a149dae27c90b12315b9be6d99266ce6e7385742..b3c8c54c35be0208498f9ed8f3e1ef3d11022239 100644
+index d58ade066c76dc542f73ce49016192a245dcb5f2..b8839cd6e8d5da0c9af952fd0f8919c53f0ddf0b 100644
 --- a/dist/types/error/flags.d.ts
 +++ b/dist/types/error/flags.d.ts
 @@ -44,6 +44,12 @@ export declare const PYTHON_HTTP2_STREAM_RESET_PATTERN: RegExp;
@@ -16,7 +16,7 @@ index a149dae27c90b12315b9be6d99266ce6e7385742..b3c8c54c35be0208498f9ed8f3e1ef3d
  export declare function isRequestBodyReadTimeout(status: number | undefined, message: string | undefined): boolean;
  /** Exact pre-output Responses 408 that needs a changed-request recovery path. */
 diff --git a/src/error/flags.ts b/src/error/flags.ts
-index 2a2f0102fa80ec50181d2d2cd7c32d13230b46bf..9bf971b5af4fd11783d2628f68764c3c779dcca2 100644
+index c4733a7d08ed9bb37006be39a1b0bfc74a86863b..7429129fa9c0d06aea69ba2a0c98ee044cca72b9 100644
 --- a/src/error/flags.ts
 +++ b/src/error/flags.ts
 @@ -176,6 +176,13 @@ export const PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN =
@@ -33,7 +33,7 @@ index 2a2f0102fa80ec50181d2d2cd7c32d13230b46bf..9bf971b5af4fd11783d2628f68764c3c
  
  const RESPONSES_REQUEST_BODY_READ_TIMEOUT_PATTERN = /\btimed out reading request body\b/i;
  
-@@ -589,6 +596,7 @@ function isTransientErrorText(text: string): boolean {
+@@ -592,6 +599,7 @@ function isTransientErrorText(text: string): boolean {
  		isStreamReadErrorText(text) ||
  		PYTHON_HTTP2_STREAM_RESET_PATTERN.test(text) ||
  		PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN.test(text) ||

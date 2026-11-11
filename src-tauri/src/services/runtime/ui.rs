@@ -11,7 +11,10 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::errors::{IpcError, IpcResult, INVALID_INPUT};
-use crate::models::agent::{UiAskOption, UiAskQuestion, UiRequest, UiResponse};
+use crate::models::agent::{
+    UiAskOption, UiAskQuestion, UiFormBlock, UiFormChoice, UiFormField, UiFormOption,
+    UiFormSection, UiFormSpan, UiFormText, UiRequest, UiResponse,
+};
 
 use super::host::session::SessionRuntime;
 use super::host::HostRuntime;
@@ -121,6 +124,12 @@ pub(crate) fn handle_request(
             questions: ask_questions(frame),
             timeout_ms,
         },
+        "form" => UiRequest::Form {
+            id: id.clone(),
+            sections: form_sections(frame),
+            fields: form_fields(frame),
+            timeout_ms,
+        },
         "cancel" => {
             // The host names the request it voids in `targetId` and gives the frame an id of its
             // own (`ui-cancel-<id>`); an engine-shaped frame carries the request id itself. Reading
@@ -212,6 +221,261 @@ pub(crate) fn handle_request(
 /// rather than shipped to the window.
 const ASK_QUESTIONS_MAX: usize = 16;
 const ASK_OPTIONS_MAX: usize = 32;
+
+/// The same ceilings for an `ask` form, which is a document rather than a question list. The host
+/// already bounds what it forwards (`host/src/ui-form.ts`); this is the second pass, for the same
+/// reason the ask questions have one - the window must not be handed a document of any size.
+const FORM_SECTIONS_MAX: usize = 64;
+const FORM_BLOCKS_MAX: usize = 256;
+const FORM_FIELDS_MAX: usize = 64;
+const FORM_OPTIONS_MAX: usize = 64;
+const FORM_ROWS_MAX: usize = 64;
+const FORM_CELLS_MAX: usize = 64;
+const FORM_LIST_ITEMS_MAX: usize = 64;
+/// Characters this process forwards for one span, label or context line. Matches
+/// `host/src/ui-form.ts::FORM_TEXT_MAX`, so a string the host already cut arrives unchanged.
+const FORM_TEXT_MAX: usize = 4_000;
+
+/// One frame string, sanitized and bounded: every span of a form is engine-composed text.
+///
+/// The host already bounds each string (`host/src/ui-form.ts::bound`); this repeats the bound
+/// because this process does not compose the frame, and `sanitize_message` alone can leave a string
+/// as long as it found it.
+fn form_text(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_str)
+        .map(sanitize_message)
+        .map(|text| {
+            // Cut on a character boundary: `String::truncate` panics mid-character.
+            match text.char_indices().nth(FORM_TEXT_MAX) {
+                Some((cut, _)) => format!("{}…", &text[..cut]),
+                None => text,
+            }
+        })
+        .unwrap_or_default()
+}
+
+/// The spans of one text run, in order.
+fn form_spans(value: Option<&Value>) -> Vec<UiFormSpan> {
+    value
+        .and_then(Value::as_array)
+        .map(|spans| {
+            spans
+                .iter()
+                .map(|span| UiFormSpan {
+                    text: form_text(span.get("text")),
+                    style: span.get("style").and_then(Value::as_str).map(str::to_owned),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One form field, by its `kind`. A field without a name is dropped: the answer addresses controls
+/// by name, so an unnamed one could never be answered.
+fn form_field(value: &Value) -> Option<UiFormField> {
+    let name = value.get("name").and_then(Value::as_str)?.to_owned();
+    if name.is_empty() {
+        return None;
+    }
+    if value.get("kind").and_then(Value::as_str) == Some("text") {
+        return Some(UiFormField::Text(UiFormText {
+            name,
+            kind: form_text(value.get("type")),
+            multiline: value
+                .get("multiline")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            label: form_spans(value.get("label")),
+            value: form_text(value.get("value")),
+            placeholder: form_text(value.get("placeholder")),
+            required: value
+                .get("required")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            min: value.get("min").and_then(Value::as_f64),
+            max: value.get("max").and_then(Value::as_f64),
+            pattern: value
+                .get("pattern")
+                .and_then(Value::as_str)
+                .map(sanitize_message),
+            min_length: value.get("minLength").and_then(Value::as_u64),
+            max_length: value.get("maxLength").and_then(Value::as_u64),
+            rows: value
+                .get("rows")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+                .min(FORM_ROWS_MAX as u64),
+        }));
+    }
+    let options: Vec<UiFormOption> = value
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .take(FORM_OPTIONS_MAX)
+                .map(|option| UiFormOption {
+                    value: form_text(option.get("value")),
+                    label: form_text(option.get("label")),
+                    checked: option
+                        .get("checked")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    disabled: option
+                        .get("disabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if options.is_empty() {
+        return None;
+    }
+    Some(UiFormField::Choice(UiFormChoice {
+        name,
+        multi: value.get("multi").and_then(Value::as_bool).unwrap_or(false),
+        select: value
+            .get("select")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        other: value.get("other").and_then(Value::as_bool).unwrap_or(false),
+        label: form_spans(value.get("label")),
+        options,
+        required: value
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }))
+}
+
+/// The named fields of the whole form, in document order: what an answer has to address.
+fn form_fields(frame: &Value) -> Vec<UiFormField> {
+    frame
+        .get("fields")
+        .and_then(Value::as_array)
+        .map(|fields| {
+            fields
+                .iter()
+                .take(FORM_FIELDS_MAX)
+                .filter_map(form_field)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One renderable unit of a section, by its `kind`.
+fn form_block(value: &Value) -> Option<UiFormBlock> {
+    match value.get("kind").and_then(Value::as_str)? {
+        "text" => Some(UiFormBlock::Text {
+            spans: form_spans(value.get("spans")),
+            heading: value
+                .get("heading")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "list" => Some(UiFormBlock::List {
+            items: value
+                .get("items")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .take(FORM_LIST_ITEMS_MAX)
+                        .map(|item| form_spans(Some(item)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ordered: value
+                .get("ordered")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "pre" => Some(UiFormBlock::Pre {
+            text: form_text(value.get("text")),
+        }),
+        "table" => Some(UiFormBlock::Table {
+            rows: value
+                .get("rows")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .take(FORM_ROWS_MAX)
+                        .map(|row| {
+                            row.as_array()
+                                .map(|cells| {
+                                    cells
+                                        .iter()
+                                        .take(FORM_CELLS_MAX)
+                                        .map(|cell| form_spans(Some(cell)))
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            header_rows: value
+                .get("headerRows")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(FORM_ROWS_MAX as u64),
+        }),
+        "image" => {
+            let src = form_text(value.get("src"));
+            // Only a source the window loads itself travels as a picture; anything else is the
+            // text the host already substituted, and a picture with no address has nothing to draw.
+            let drawable = src.starts_with("http://")
+                || src.starts_with("https://")
+                || src.starts_with("data:");
+            if drawable {
+                Some(UiFormBlock::Image {
+                    src,
+                    alt: form_text(value.get("alt")),
+                })
+            } else {
+                None
+            }
+        }
+        "svg" => Some(UiFormBlock::Svg {
+            markup: form_text(value.get("markup")),
+            alt: form_text(value.get("alt")),
+        }),
+        "field" => value
+            .get("field")
+            .and_then(form_field)
+            .map(|field| UiFormBlock::Field { field }),
+        _ => None,
+    }
+}
+
+/// The form's sections, in document order.
+fn form_sections(frame: &Value) -> Vec<UiFormSection> {
+    frame
+        .get("sections")
+        .and_then(Value::as_array)
+        .map(|sections| {
+            sections
+                .iter()
+                .take(FORM_SECTIONS_MAX)
+                .map(|section| UiFormSection {
+                    title: form_spans(section.get("title")),
+                    blocks: section
+                        .get("blocks")
+                        .and_then(Value::as_array)
+                        .map(|blocks| {
+                            blocks
+                                .iter()
+                                .take(FORM_BLOCKS_MAX)
+                                .filter_map(form_block)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// The questions of an `ask` frame, field for field, bounded and sanitized.
 ///
@@ -312,6 +576,15 @@ pub(crate) async fn respond(
                 })?,
             );
         }
+    } else if let Some(answers) = &response.answers {
+        // A form is answered by its controls, so the payload is the per-field list and nothing else:
+        // `kind` and `results` belong to the question-list shape the tool no longer asks in.
+        payload.insert(
+            "answers".to_owned(),
+            serde_json::to_value(answers).map_err(|_| {
+                IpcError::new(INVALID_INPUT, "The form answers could not be serialized.")
+            })?,
+        );
     } else if let Some(value) = response.value.as_deref() {
         payload.insert("value".to_owned(), json!(value));
     }
@@ -405,13 +678,14 @@ fn validate_shape(response: &UiResponse) -> IpcResult<()> {
         response.confirmed.is_some(),
         response.cancelled == Some(true),
         response.kind.is_some(),
+        response.answers.is_some(),
     ];
     if shapes.iter().filter(|present| **present).count() == 1 {
         return Ok(());
     }
     Err(IpcError::new(
         INVALID_INPUT,
-        "A UI response must carry exactly one of `value`, `confirmed`, `cancelled` or `kind`.",
+        "A UI response must carry exactly one of `value`, `confirmed`, `cancelled`, `kind` or `answers`.",
     ))
 }
 

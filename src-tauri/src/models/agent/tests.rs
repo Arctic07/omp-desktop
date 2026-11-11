@@ -7,6 +7,8 @@
 use super::*;
 use crate::services::runtime::PROTOCOL_VERSION;
 
+use super::form::UiFormValue;
+
 /// An ask answer is one of two documents, and nothing else: a submission carries one result per
 /// question (the engine refuses a count that does not match), a chat answer carries none. The
 /// names are the ones the host reads back (`selectedOptions`, `customInput`, `timedOut`), so a
@@ -892,4 +894,54 @@ fn a_secret_dialog_says_so_and_an_ordinary_one_does_not() {
     })
     .expect("serialize");
     assert!(ordinary.get("secret").is_none(), "{ordinary}");
+}
+
+/// A form answer is its controls and nothing else: every field travels by name, and an empty list
+/// is a real answer (the form was submitted untouched, so each field keeps its own default).
+///
+/// The names are what the host reads back (`answers[].name` / `answers[].value`) and what the engine
+/// validates the data against, so a rename here would leave the form half-answered on the engine's
+/// side. A value's three shapes are the engine's own (`HtmlFormValue`): text, a number, or a group's
+/// checked values.
+#[test]
+fn form_responses_carry_per_control_answers_and_nothing_else() {
+    let answered = UiResponse {
+        answers: Some(vec![
+            UiFormAnswer {
+                name: "store".to_owned(),
+                value: UiFormValue::Text("sqlite".to_owned()),
+            },
+            UiFormAnswer {
+                name: "ttl".to_owned(),
+                value: UiFormValue::Number(30.0),
+            },
+            UiFormAnswer {
+                name: "tags".to_owned(),
+                value: UiFormValue::Multiple(vec!["a".to_owned(), "b".to_owned()]),
+            },
+        ]),
+        ..UiResponse::default()
+    };
+    assert!(answered.validate("form").is_ok());
+
+    let row = serde_json::to_value(answered.answers.as_ref().expect("answers")).expect("serialize");
+    assert_eq!(row[0]["name"], serde_json::json!("store"));
+    assert_eq!(row[0]["value"], serde_json::json!("sqlite"));
+    assert_eq!(row[1]["value"], serde_json::json!(30.0));
+    assert_eq!(row[2]["value"], serde_json::json!(["a", "b"]));
+
+    // An untouched submit is still an answer: every field keeps the form's own default.
+    let untouched = UiResponse {
+        answers: Some(Vec::new()),
+        ..UiResponse::default()
+    };
+    assert!(untouched.validate("form").is_ok());
+
+    // A form answer is not a question-list answer, and the shape gate keeps them apart.
+    let shapeless = UiResponse {
+        kind: Some("submit".to_owned()),
+        ..UiResponse::default()
+    };
+    assert!(shapeless.validate("form").is_err());
+    assert!(answered.validate("ask").is_err());
 }

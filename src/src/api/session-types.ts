@@ -572,6 +572,86 @@ export type UiRequest =
       timeoutMs: number | null
     }
   | { method: 'ask'; id: string; questions: UiAskQuestion[]; timeoutMs: number | null }
+  | {
+      method: 'form'
+      id: string
+      sections: UiFormSection[]
+      fields: UiFormField[]
+      timeoutMs: number | null
+    }
+
+/** One styled run of form text (`code`, `strong`, `em`, or plain). */
+export interface UiFormSpan {
+  text: string
+  style?: 'code' | 'strong' | 'em' | null
+}
+
+/** One answer of a choice field: the value the model receives, and the label the reader sees. */
+export interface UiFormOption {
+  value: string
+  label: string
+  checked: boolean
+  disabled: boolean
+}
+
+/** A radio group, checkbox group or `<select>`: one question with its own answers. */
+export interface UiFormChoice {
+  kind: 'choice'
+  name: string
+  /** A checkbox group or multi-select: the answer is an array. */
+  multi: boolean
+  /** From a `<select>`: drawn as one row rather than an option list. */
+  select: boolean
+  /** The form adds a free-text "Other" answer for this group. */
+  other: boolean
+  label: UiFormSpan[]
+  options: UiFormOption[]
+  required: boolean
+}
+
+/** A single-line `<input>` or a `<textarea>`, with the validation the model was promised. */
+export interface UiFormText {
+  kind: 'text'
+  name: string
+  /** The `<input type>`, or `textarea`. */
+  type: string
+  multiline: boolean
+  label: UiFormSpan[]
+  value: string
+  placeholder: string
+  required: boolean
+  min?: number | null
+  max?: number | null
+  pattern?: string | null
+  minLength?: number | null
+  maxLength?: number | null
+  rows: number
+}
+
+export type UiFormField = UiFormChoice | UiFormText
+
+/** One renderable unit of a section, in document order. */
+export type UiFormBlock =
+  | { kind: 'text'; spans: UiFormSpan[]; heading: boolean }
+  | { kind: 'list'; items: UiFormSpan[][]; ordered: boolean }
+  | { kind: 'pre'; text: string }
+  | { kind: 'table'; rows: UiFormSpan[][][]; headerRows: number }
+  /** A picture the window loads itself: an `http(s)` URL or a `data:` URI. */
+  | { kind: 'image'; src: string; alt: string }
+  | { kind: 'svg'; markup: string; alt: string }
+  | { kind: 'field'; field: UiFormField }
+
+/** A `<fieldset>` (titled by its `<legend>`) or the loose content between fieldsets. */
+export interface UiFormSection {
+  title: UiFormSpan[]
+  blocks: UiFormBlock[]
+}
+
+/** One field's answer as the reader gave it: the control it addresses, and its value. */
+export interface UiFormAnswer {
+  name: string
+  value: string | number | string[]
+}
 
 export interface UiAskResult {
   id: string
@@ -591,6 +671,8 @@ export interface UiResponse {
   /** `submit` | `chat`, for an `ask` dialog. */
   kind?: string | null
   results?: UiAskResult[] | null
+  /** One entry per control of an `ask` form, addressed by the control's `name`. */
+  answers?: UiFormAnswer[] | null
 }
 
 /* ------------------------------------------------------------------ frames */

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import * as htmlForm from '@oh-my-pi/pi-tui/html-form/data'
+import * as htmlFormParse from '@oh-my-pi/pi-tui/html-form/parse'
+
 import type { SessionEvents } from './events.ts'
 import type { UiEngineBindings } from './ui.ts'
 import { UiBridge } from './ui.ts'
@@ -25,6 +28,12 @@ function bridge() {
   const engine: UiEngineBindings = {
     selectOptionLabel: option => (typeof option === 'string' ? option : option.label),
     theme: {} as UiEngineBindings['theme'],
+    htmlForm: {
+      parse: html => htmlFormParse.parseHtmlForm(html),
+      defaults: form => htmlForm.defaultFormData(form),
+      isArrayChoice: field => htmlForm.isArrayChoice(field),
+      textValue: (field, text) => htmlForm.textValue(field, text),
+    },
   }
   return { bridge: new UiBridge(events, engine, 300_000), frames }
 }

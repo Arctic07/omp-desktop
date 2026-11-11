@@ -32,6 +32,8 @@ import type { generateGitCommit, formatConventionalCommit } from '@oh-my-pi/pi-c
 import type { resolvePrimaryModel } from '@oh-my-pi/pi-coding-agent/commit/model-selection'
 import type { generateCommitMessage } from '@oh-my-pi/pi-coding-agent/utils/commit-message-generator'
 import type { completeSimple, SqliteAuthCredentialStore } from '@oh-my-pi/pi-ai'
+import type { defaultFormData, isArrayChoice, textValue } from '@oh-my-pi/pi-tui/html-form/data'
+import type { parseHtmlForm } from '@oh-my-pi/pi-tui/html-form/parse'
 import type { formatModelRoleAlias, getKnownRoleIds, getRoleInfo, roleCandidatePool } from '@oh-my-pi/pi-coding-agent/config/model-roles'
 import type { getModelMatchPreferences, pickDefaultAvailableModel, resolveAllowedModels, resolveModelRoleValue } from '@oh-my-pi/pi-coding-agent/config/model-resolver'
 import type { MCPServer as EngineMcpServer } from '@oh-my-pi/pi-coding-agent/capability/mcp'
@@ -401,6 +403,22 @@ export interface SdkBundle {
   readonly theme: Theme
   /** Label of one select option, as other frontends render it. */
   readonly selectOptionLabel: (option: ExtensionUISelectItem) => string
+  /**
+   * The engine's own HTML-form reader and value rules, for the `ask` tool's form surface.
+   *
+   * `parseHtmlForm`, `defaultFormData`, `isArrayChoice` and `textValue` are the functions the
+   * engine's own TUI and ACP hosts draw and answer a form with, and they live in `@oh-my-pi/pi-tui` -
+   * the engine's rendering package, pinned to the engine's version. Reusing them keeps the form this
+   * desktop draws the form the engine would have drawn, and keeps the data it reports in the shapes
+   * the model was told to expect (a number for `number`, an array only for a real group). Loaded
+   * here with the rest of the graph because a second implementation would drift from the prompt.
+   */
+  readonly htmlForm: {
+    readonly parse: typeof parseHtmlForm
+    readonly defaults: typeof defaultFormData
+    readonly isArrayChoice: typeof isArrayChoice
+    readonly textValue: typeof textValue
+  }
   /** Model role ids the engine knows: the built-ins plus every role settings mentions. */
   readonly getKnownRoleIds: typeof getKnownRoleIds
   /** Tag, display name and section of one role (configured metadata overrides the built-in). */
@@ -581,6 +599,10 @@ export async function loadSdk(): Promise<SdkBundle> {
   // `agent.complete` must go through the one seam, and the package is declared in `package.json`
   // rather than reached through a hoisted copy of another version.
   const ai = await import('@oh-my-pi/pi-ai')
+  // The `ask` tool's form surface: the parser and the value rules the engine's own TUI and ACP
+  // hosts draw a form with, loaded with the rest of the graph for the same reason.
+  const htmlFormParse = await import('@oh-my-pi/pi-tui/html-form/parse')
+  const htmlFormData = await import('@oh-my-pi/pi-tui/html-form/data')
 
   // The engine's theme is a module-level singleton that starts undefined and is assigned only by
   // its own initializer: the CLI runs it for every mode before dispatch, and engine code reads it
@@ -679,6 +701,12 @@ export async function loadSdk(): Promise<SdkBundle> {
     resetCapabilities: capability.reset,
     theme: sdk.theme,
     selectOptionLabel: extensionUi.getExtensionUISelectOptionLabel,
+    htmlForm: {
+      parse: htmlFormParse.parseHtmlForm,
+      defaults: htmlFormData.defaultFormData,
+      isArrayChoice: htmlFormData.isArrayChoice,
+      textValue: htmlFormData.textValue,
+    },
     getKnownRoleIds: roles.getKnownRoleIds,
     getRoleInfo: roles.getRoleInfo,
     roleCandidatePool: roles.roleCandidatePool,
@@ -743,3 +771,12 @@ export type {
   SkillWarning,
   VisitEntriesFromFileStreamOptions,
 }
+
+/**
+ * The `ask` tool's form data types, re-exported from the engine's extension surface.
+ *
+ * `host/src/ui-form.ts` projects a parsed form onto the wire and answers it back in this shape, so
+ * the two halves of one contract name the same type - and the type comes from the seam rather than
+ * from a second engine import in that module.
+ */
+export type { HtmlFormData, HtmlFormValue } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'

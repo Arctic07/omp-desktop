@@ -195,6 +195,13 @@ export async function startMockProvider(): Promise<MockProvider> {
         respondToolCall(response, body, 'write', { path: target, content: marker })
         return
       }
+      // The `ask` tool's form surface: one agent-written form, answered by the scenario through the
+      // `form` dialog the host raises for it. The prompt text is the shape the tool's own prompt
+      // asks for - a fieldset of radios, a checkbox group, a text field and context to decide on.
+      if (command === 'ask-form') {
+        respondToolCall(response, body, 'ask', { html: ASK_FORM })
+        return
+      }
       if (command === 'vibe-spawn') {
         respondToolCall(response, body, 'vibe_spawn', {
           cli: target === 'good' ? 'good' : 'fast',
@@ -245,6 +252,28 @@ export async function startMockProvider(): Promise<MockProvider> {
     },
   }
 }
+
+/**
+ * The form the `ask-form` command makes the model write.
+ *
+ * It carries one of each control the tool's prompt documents - a radio group with its recommendation
+ * preselected, a checkbox group, a numeric field with a bound, and a paragraph of context - so the
+ * scenario exercises the whole projection rather than one field.
+ */
+const ASK_FORM = `<form>
+  <p>Sessions live in memory and are lost on restart.</p>
+  <fieldset>
+    <legend>Session store</legend>
+    <label><input type="radio" name="store" value="sqlite" checked> SQLite</label>
+    <label><input type="radio" name="store" value="redis"> Redis</label>
+  </fieldset>
+  <fieldset>
+    <legend>Optional extras</legend>
+    <label><input type="checkbox" name="extras" value="metrics"> Metrics</label>
+    <label><input type="checkbox" name="extras" value="tracing"> Tracing</label>
+  </fieldset>
+  <label>Session lifetime (days) <input type="number" name="ttl_days" value="30" min="1"></label>
+</form>`
 
 /**
  * The summary an upstream endpoint writes when it compacts a conversation on its own.

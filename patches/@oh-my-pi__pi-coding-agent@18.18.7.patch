@@ -1,8 +1,8 @@
 diff --git a/src/session/turn-recovery.ts b/src/session/turn-recovery.ts
-index 86d9c32e64e6535b0b495c2f7331325e15e224f5..fafc3514e260e341bfffc1b146e699ae3474c84f 100644
+index 1748e9513ddac098a76ec2b7ae661c497275e8cb..84ced8d12297bf74e9ddaba12475c0dfb6005b5d 100644
 --- a/src/session/turn-recovery.ts
 +++ b/src/session/turn-recovery.ts
-@@ -1724,6 +1724,7 @@ export class TurnRecovery {
+@@ -1733,6 +1733,7 @@ export class TurnRecovery {
  			HTTP2_STREAM_RESET_ERROR_RE.test(errorMessage) ||
  			AIError.PYTHON_HTTP2_STREAM_RESET_PATTERN.test(errorMessage) ||
  			AIError.PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN.test(errorMessage) ||

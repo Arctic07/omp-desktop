@@ -179,8 +179,14 @@
  * already carries the id and the name). No command is added, and an artifact from before 38 would
  * still answer - but with the wrong refusal: it resolves `sessionFile` and finds none, so a delete a
  * plugin asked for comes back as an unreadable request rather than as a delete.
+ *
+ * 39 adds the `ask` tool's form dialog: engine 18.18.3 replaced `questions[]` with one HTML form
+ * (`{ html }`) and prefers `ui.formDialog`, so the host now answers with a `form` request carrying
+ * the parsed document, and the desktop answers with per-control `answers` instead of `kind` +
+ * `results`. An artifact from before 39 would absorb the `form` frame as an unknown method and leave
+ * the tool waiting for an answer nothing was going to send - the same silence as 13/16/17.
  */
-export const PROTOCOL_VERSION = 38
+export const PROTOCOL_VERSION = 39
 
 /**
  * The plugin worker's own protocol version (plan §6.2/§8.1), shared with the Rust supervisor.

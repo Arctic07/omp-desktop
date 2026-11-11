@@ -138,7 +138,11 @@ use crate::services::log;
 /// `session.delete`, and a plugin's `session.rename` rides `session_set_name` unchanged. No command
 /// is added, but an older host resolves the `sessionFile` it finds missing and refuses a delete a
 /// plugin asked for, so the artifact is rebuilt with the desktop rather than left to that answer.
-pub(crate) const PROTOCOL_VERSION: u32 = 38;
+/// 39 adds the `ask` tool's form dialog: engine 18.18.3 replaced `questions[]` with one HTML form and
+/// prefers `ui.formDialog`, so the host answers with a `form` request and this process replies with
+/// per-control `answers`. An older host absorbs the `form` frame as an unknown method and leaves the
+/// tool waiting for an answer nothing was going to send - the same silence as 13/16/17.
+pub(crate) const PROTOCOL_VERSION: u32 = 39;
 /// Connection-class commands (session state and friends) give up after this long.
 pub(crate) const CONNECT_TIMEOUT_MS: u64 = 15_000;
 /// Model catalogue reads re-hydrate provider credentials, which was measured at 3-10 s.

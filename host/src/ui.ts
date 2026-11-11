@@ -10,13 +10,18 @@
 import type {
   ExtensionAskDialogQuestion,
   ExtensionAskDialogResult,
+  ExtensionFormDialogResult,
   ExtensionUIContext,
   ExtensionUISelectItem,
+  HtmlFormData,
+  HtmlFormValue,
   Theme,
 } from '@oh-my-pi/pi-coding-agent'
+import type { ChoiceField, HtmlForm, TextField } from '@oh-my-pi/pi-tui/html-form/parse'
 
 import { UI_REQUEST_TIMEOUT_ENV, UI_REQUEST_TIMEOUT_MS } from './constants.ts'
 import type { SessionEvents } from './events.ts'
+import { formResponseData, wireForm, type FormWireAnswer } from './ui-form.ts'
 
 /** Engine values the UI context needs but the host cannot import statically. */
 export interface UiEngineBindings {
@@ -24,6 +29,19 @@ export interface UiEngineBindings {
   readonly selectOptionLabel: (option: ExtensionUISelectItem) => string
   /** Shared default theme object (this host renders no TUI, but extensions read it). */
   readonly theme: Theme
+  /**
+   * The engine's own HTML-form reader and value rules (`sdk.ts`'s `htmlForm`).
+   *
+   * `parse` turns the model's HTML into the document the frame carries; `defaults` is what a field
+   * keeps when the reader leaves it alone, which is also what a timeout submits; `isArrayChoice` and
+   * `textValue` decide what shape each answer takes on the way back to the engine.
+   */
+  readonly htmlForm: {
+    readonly parse: (html: string) => HtmlForm
+    readonly defaults: (form: HtmlForm) => HtmlFormData
+    readonly isArrayChoice: (field: ChoiceField) => boolean
+    readonly textValue: (field: TextField, text: string) => HtmlFormValue
+  }
 }
 
 /** One dialog this host is waiting on. */
@@ -88,6 +106,29 @@ function questionEcho(question: ExtensionAskDialogQuestion): {
     options: question.options.map(option => option.label),
     multi: question.multi === true,
   }
+}
+
+/**
+ * The per-field answers of a form response, as the reader gave them.
+ *
+ * The wire carries one entry per control, because a form is a document rather than a question list:
+ * `name` addresses the field, `value` is what the reader left in it. A response without answers is
+ * an empty list, which `formResponseData` reads as "every field keeps its default".
+ */
+function formAnswersOf(response: Record<string, unknown>): FormWireAnswer[] {
+  const rows = Array.isArray(response.answers) ? response.answers : []
+  const answers: FormWireAnswer[] = []
+  for (const entry of rows) {
+    const row = (entry ?? {}) as Record<string, unknown>
+    const name = typeof row.name === 'string' ? row.name : ''
+    if (name === '') continue
+    const value = row.value
+    if (typeof value === 'string' || typeof value === 'number') answers.push({ name, value })
+    else if (Array.isArray(value)) {
+      answers.push({ name, value: value.filter((item): item is string => typeof item === 'string') })
+    }
+  }
+  return answers
 }
 
 /** One ask response as the engine's result type; a cancelled dialog is `undefined`. */
@@ -225,6 +266,43 @@ export class UiBridge {
             return parseAskResult(response, dialogOptions?.onTimeout)
           },
         }),
+      // The `ask` tool's surface since engine 18.18.3: one HTML form, drawn whole. The tool prefers
+      // this over walking its fields through `select`/`input`, which is why the host implements it -
+      // the field-by-field path loses the form's context blocks, its images and its validation.
+      formDialog: (html, dialogOptions) => {
+        const form = engine.htmlForm.parse(html)
+        const defaults = engine.htmlForm.defaults(form)
+        // A form with no named control is not answerable: the tool answers its own error for that,
+        // so the host declines the surface and lets the engine's path handle it.
+        if (form.fields.every(field => field.name === '')) return Promise.resolve(undefined)
+        return this.#dialog<ExtensionFormDialogResult | undefined>({
+          method: 'form',
+          fields: wireForm(form),
+          timeoutMs: dialogOptions?.timeout,
+          signal: dialogOptions?.signal,
+          onTimeout: dialogOptions?.onTimeout,
+          fallback: undefined,
+          // A deadline submits the form's current values, which is the contract the engine's own
+          // form surface documents - and what the model was told its preselected answer means.
+          expireValue: { data: defaults, timedOut: true },
+          parse: (response) => {
+            // Two owners can reach the deadline: this host's own timer (handled by `expireValue`
+            // above) and the desktop's expiry of the same request, which arrives as
+            // `cancelled + timedOut`. Both mean "the form timed out", which the engine answers by
+            // submitting its current values - not by cancelling the turn, so a timed-out response is
+            // answered here rather than closed, exactly as `askDialog` does.
+            if (response.timedOut === true) {
+              dialogOptions?.onTimeout?.()
+              return { data: defaults, timedOut: true }
+            }
+            if (response.cancelled === true) return undefined
+            const answers = formAnswersOf(response)
+            return {
+              data: formResponseData(form, defaults, answers, engine.htmlForm.isArrayChoice, engine.htmlForm.textValue),
+            }
+          },
+        })
+      },
       notify: (message, type) => this.#announce('notify', { message, notifyType: type }),
       setStatus: (key, text) => this.#announce('setStatus', { statusKey: key, statusText: text }),
       setWidget: (key, content, options) => {

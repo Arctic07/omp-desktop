@@ -3,6 +3,7 @@ use serde_json::Value;
 
 mod chat;
 mod children;
+mod form;
 mod search;
 mod stop;
 mod work;
@@ -12,6 +13,10 @@ pub(crate) use chat::{
     SessionHistory,
 };
 pub(crate) use children::{SessionChild, SessionChildren};
+pub(crate) use form::{
+    UiFormAnswer, UiFormBlock, UiFormChoice, UiFormField, UiFormOption, UiFormSection, UiFormSpan,
+    UiFormText,
+};
 pub(crate) use search::{SessionSearchHit, SessionSearchSnippet};
 pub(crate) use stop::{AbortOutcome, BackgroundJob, ForceStopOutcome, StopJobOutcome};
 pub(crate) use work::{
@@ -812,6 +817,17 @@ pub(crate) enum UiRequest {
         #[serde(rename = "timeoutMs")]
         timeout_ms: Option<u64>,
     },
+    /// The `ask` tool's own surface since engine 18.18.3 (`ExtensionUIContext.formDialog`): one
+    /// agent-written HTML form, drawn whole rather than walked one field at a time. The document is
+    /// parsed by the host with the engine's own reader, so this is the form the engine would draw.
+    Form {
+        id: String,
+        sections: Vec<UiFormSection>,
+        /// Every named field, in document order: what the answer has to address.
+        fields: Vec<UiFormField>,
+        #[serde(rename = "timeoutMs")]
+        timeout_ms: Option<u64>,
+    },
 }
 
 /// One option of one question: the label is required, the two extras are the engine's own hints.
@@ -876,6 +892,10 @@ pub(crate) struct UiResponse {
     /// One entry per question, in the order they were asked.
     #[serde(default)]
     pub(crate) results: Option<Vec<UiAskResult>>,
+    /// One entry per control of an `ask` form, addressed by the control's `name`. A field the
+    /// reader left alone is absent, and keeps the value the form opened with.
+    #[serde(default)]
+    pub(crate) answers: Option<Vec<UiFormAnswer>>,
 }
 
 impl UiResponse {
@@ -899,6 +919,13 @@ impl UiResponse {
                 (Some("chat"), _) => Ok(()),
                 (Some("submit"), true) => Ok(()),
                 _ => Err("An ask response requires `kind` and, for `submit`, `results`."),
+            },
+            // A form is answered by its controls, and every field the reader touched travels by
+            // name. An empty list is a real answer (the form was submitted untouched, so each field
+            // keeps its own default), which is why the key itself has to be present.
+            "form" => match self.answers {
+                Some(_) => Ok(()),
+                None => Err("A form response requires `answers`."),
             },
             _ => Err("This request does not accept a response."),
         }

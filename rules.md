@@ -382,6 +382,7 @@ Four assertions hold before every release: **A1** the four `APP_VERSION` sites a
 - **Version monotonicity**: a remote version is strictly greater than the local one; re-publishing different content at one version is a release incident, and rolling back means publishing a higher version, never re-pointing the feed at an older one.
 - Install replaces files and does not touch data; data migration happens on the new version's first start, per [Startup upgrade and downgrade](#startup-upgrade-and-downgrade).
 - When the protocol or schema changes in a way that cannot be migrated in place, the minimum upgradable version rises and older installations take the reinstall path instead of an in-place update.
+- Agent-written markup is sanitized where it crosses into this process, not where it is drawn: an engine surface that forwards HTML (the `ask` form, and any later one) passes an allowlist before its frame exists.
 
 ### Delivery
 
