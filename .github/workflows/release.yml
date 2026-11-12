@@ -101,6 +101,9 @@ jobs:
           pnpm --filter src typecheck
           pnpm --filter src lint
           pnpm --filter src test
+          # The installer's Windows surface: per-user install, no firewall rule, no inbound bind
+          # (`rules.md#updates-and-upgrades`). A tag must not be able to publish an elevated one.
+          node scripts/check-installer-surface.mjs
 
       - name: Build the host artifact
         run: pnpm host:install

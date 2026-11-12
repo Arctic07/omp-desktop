@@ -109,7 +109,7 @@ A standing rule names its check; a rule without one decays into a suggestion.
 | `cd host && bun test`, `bun run scripts/{seam-check,smoke,isolation,artifacts}.ts` | Frames, protocol, scenarios, isolation, artifact provenance |
 | `cargo fmt --check`, `cargo check`, `cargo test --lib` | Rust format and behavior (through the wrapper above) |
 | `host/src/write-guard.ts`, with tests | Cross-session overwrite |
-| `pnpm check:repo` | Budgets, links, 1000-line limit (`scripts/file-size-allowlist.json`), note format, dependency direction (`scripts/arch-allowlist.json`), public surface |
+| `pnpm check:repo` | Budgets, links, 1000-line limit (`scripts/file-size-allowlist.json`), note format, dependency direction (`scripts/arch-allowlist.json`), public/installer surface |
 | `git diff --check` | Whitespace |
 | Review (no gate) | Architecture ownership, document tier, whether a test describes behavior, whether evidence matches the surface |
 
