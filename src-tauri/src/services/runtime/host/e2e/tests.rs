@@ -56,7 +56,7 @@ fn is_session_id(text: &str) -> bool {
 
 /// The artifact, the handshake, a session's whole life, and an ordered shutdown.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn the_installed_host_answers_a_full_session() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("session"));
@@ -211,7 +211,7 @@ fn the_installed_host_answers_a_full_session() {
 /// A launcher speaking another protocol must be refused, with the exit code that refusal is
 /// defined to produce.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn a_protocol_mismatch_ends_the_host_with_exit_code_three() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("mismatch"));
@@ -262,7 +262,7 @@ fn a_protocol_mismatch_ends_the_host_with_exit_code_three() {
 /// Closing stdin without a word is how a vanished launcher reaches the host: it has to end by
 /// itself, cleanly, rather than linger.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn closing_stdin_ends_the_host_by_itself() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("stdin"));
@@ -299,7 +299,7 @@ fn closing_stdin_ends_the_host_by_itself() {
 /// The kill path (crash recovery, restart, application quit) has to take the whole tree down and
 /// leave nothing behind.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn killing_the_host_leaves_no_process_behind() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("kill"));
@@ -347,7 +347,7 @@ fn killing_the_host_leaves_no_process_behind() {
 /// drawn from the `state` snapshot this host publishes, and a picked `/name` only does something
 /// if the host dispatches it instead of handing the text to the engine's prompt path.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn the_installed_host_answers_a_command_prompt() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("slash"));
@@ -434,7 +434,7 @@ fn the_installed_host_answers_a_command_prompt() {
 /// the host's to do, and only on the caller's word: `session_close` without `dropFile` keeps a
 /// transcript, because a screen moving on never deletes what the user wrote (contract §4).
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn an_unused_session_is_discarded_only_when_the_caller_says_so() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("empty-draft"));
@@ -492,7 +492,7 @@ fn an_unused_session_is_discarded_only_when_the_caller_says_so() {
 /// covered is the shape of the refusal: the same request against a session that *is* loaded and
 /// idle is answered, so the gate is the work rather than the lookup.
 #[test]
-#[ignore = "starts the real host artifact: needs binaries/omp-host-<triple>.exe + omp-host.json (run with --ignored)"]
+#[ignore = "starts the real host artifact: needs binaries/bundle/manifest.json (run with --ignored)"]
 fn deleting_a_conversation_takes_its_transcript_and_nothing_else() {
     let _serial = serial();
     let mut host = Host::start(Fixture::new("delete-conversation"));

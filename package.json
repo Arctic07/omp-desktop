@@ -29,8 +29,7 @@
     "check:notes": "node scripts/check-note-format.mjs",
     "check:arch": "node scripts/check-arch.mjs",
     "check:public": "node scripts/check-public.mjs",
-    "check:repo": "node scripts/check-public.mjs && node scripts/check-doc-budget.mjs && node scripts/check-doc-links.mjs && node scripts/check-file-size.mjs && node scripts/check-note-format.mjs && node scripts/generate-notices.mjs --check && node scripts/check-arch.mjs",
-    "tauri:build:bundle": "node scripts/tauri-build.mjs --config src-tauri/tauri.bundle.conf.json"
+    "check:repo": "node scripts/check-public.mjs && node scripts/check-doc-budget.mjs && node scripts/check-doc-links.mjs && node scripts/check-file-size.mjs && node scripts/check-note-format.mjs && node scripts/generate-notices.mjs --check && node scripts/check-arch.mjs"
   },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "18.18.7",

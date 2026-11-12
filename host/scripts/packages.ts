@@ -33,7 +33,7 @@ export function resolvePackage(fromDir: string, name: string): string {
 }
 
 /**
- * The non-compiled artifact's directory name and manifest shape.
+ * The shipped bundle's directory name and manifest shape.
  *
  * One home for both sides: `build.ts` writes the manifest and `provenance.ts` verifies it, and the
  * two disagreeing about a role or a field name is exactly the drift this file exists to prevent.

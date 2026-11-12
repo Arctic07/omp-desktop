@@ -32,7 +32,7 @@ OMP Desktop 是 omp 的 Tauri 2 桌面应用。React 19 / TypeScript 界面通�
 git clone https://github.com/Arctic07/omp-desktop.git
 cd omp-desktop
 pnpm install
-pnpm host:install        # 构建内嵌宿主产物
+pnpm host:install        # 构建安装包内置的宿主包
 pnpm tauri:dev           # 开发身份：com.omp.desktop.dev
 ```
 

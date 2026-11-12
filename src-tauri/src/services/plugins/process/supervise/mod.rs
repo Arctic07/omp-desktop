@@ -331,7 +331,8 @@ pub(super) trait WorkerLink: Send + Sync {
 /// The launch a supervisor uses: the shipped host artifact in production, a test's script otherwise.
 #[derive(Debug, Clone)]
 pub(super) enum Launch {
-    /// `omp-host.exe --plugin-worker …`, located and verified through `services::host_bin`.
+    /// The host bundle started with `--plugin-worker`, located and verified through
+    /// `services::host_bin`.
     Host,
     /// A test's own launcher: the host tree run through its runtime (`bun host/src/main.ts …`).
     #[cfg(test)]

@@ -85,19 +85,10 @@ pub fn run() {
                 services::host_bin::set_resource_dir(directory);
             }
             // An earlier installation may have left the retired compiled host and its backups
-            // beside this executable. Both layouts are known by now, so the sweep can tell which
-            // one is current; see `services::residue` for the allowlist it is held to.
+            // beside this executable; see `services::residue` for the allowlist it is held to.
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(directory) = exe.parent() {
-                    let bundle_present = directory.join("bundle").join("manifest.json").is_file()
-                        || app
-                            .path()
-                            .resource_dir()
-                            .map(|resources| {
-                                resources.join("bundle").join("manifest.json").is_file()
-                            })
-                            .unwrap_or(false);
-                    services::residue::sweep_installation(directory, bundle_present);
+                    services::residue::sweep_installation(directory);
                 }
             }
             let state = match state::AppState::new(app.handle()) {

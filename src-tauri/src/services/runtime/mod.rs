@@ -35,7 +35,7 @@ use crate::services::log;
 ///
 /// 2 is the vocabulary that carries the engine-state commands - the model-role trio and the
 /// capability commands (skills, MCP, memory, usage) - and 3 adds the MCP definition writes
-/// (`mcp_upsert` / `mcp_remove`), which turn the MCP page from a list of switches into a manager. `host_bin::verify` refuses an artifact whose manifest records anything else, and
+/// (`mcp_upsert` / `mcp_remove`), which turn the MCP page from a list of switches into a manager. The launcher's bundle verification refuses an artifact whose manifest records anything else, and
 /// the host refuses a mismatching `hello_ok`, so a host built before those commands is reported as
 /// an unusable artifact rather than started and then silently ignoring them. 4 adds the conversation
 /// delete (`session_delete`), which takes a transcript away rather than only ending a screen's use

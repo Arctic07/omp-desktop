@@ -10,8 +10,8 @@
 //!
 //! The four scenarios - the handshake and a whole session, the protocol refusal, a vanished
 //! launcher, and the kill path - are each a lifecycle claim rather than a piece of plumbing. All
-//! four are `#[ignore]`d: they need `binaries/omp-host-<triple>.exe` plus its manifest to have
-//! been built, and they start a real process rather than a data structure.
+//! four are `#[ignore]`d: they need `binaries/bundle/manifest.json` and the files it names to
+//! have been built, and they start a real process rather than a data structure.
 //!
 //! A model turn (`session_prompt` → streamed deltas → `agent_end`) is deliberately absent: it
 //! needs provider credentials, and a fabricated provider would only test the fabrication. That

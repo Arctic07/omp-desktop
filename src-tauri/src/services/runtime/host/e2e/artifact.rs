@@ -1,11 +1,10 @@
 //! Locating the shipped host artifact and vouching for it.
 //!
 //! This is the half of the harness that has nothing to do with processes: the application's own
-//! locator decides *which* program is the host, and then this module re-derives the manifest here.
-//! A passing test has to mean "these bytes are the ones the manifest describes", not "the code
-//! that checked it said so" - so every digest, every size and the SDK version are recomputed from
-//! disk. Both layouts are covered: a compiled artifact against `omp-host.json`, and a bundle
-//! against the file list in `bundle/manifest.json`.
+//! locator decides *which* directory is the host, and then this module re-derives the manifest
+//! here. A passing test has to mean "these bytes are the ones the manifest describes", not "the
+//! code that checked it said so" - so every digest, every size and the SDK version are recomputed
+//! from disk.
 
 use std::io::Read;
 use std::path::Path;
@@ -18,10 +17,6 @@ use crate::services::runtime::PROTOCOL_VERSION;
 
 use super::field;
 
-/// Where the repository's own artifact and manifest live, relative to this crate.
-const ARTIFACT_DIR: &str = "binaries";
-const MANIFEST_FILE: &str = "omp-host.json";
-
 /// Locates the shipped artifact the way the application does, then verifies it independently.
 pub(super) fn locate() -> HostArtifact {
     let artifact = host_bin::locate().unwrap_or_else(|error| {
@@ -30,81 +25,16 @@ pub(super) fn locate() -> HostArtifact {
             error.code, error.message
         )
     });
-    if artifact.path.is_dir() {
-        verify_bundle_independently(&artifact);
-        return artifact;
-    }
-    let manifest = read_manifest(&artifact.path);
-    let bytes = std::fs::metadata(&artifact.path)
-        .unwrap_or_else(|error| panic!("the located artifact must be readable: {error}"))
-        .len();
-    assert_eq!(
-        Some(bytes),
-        field(&manifest, &["bytes"]).as_u64(),
-        "the artifact's size must be the size its manifest records"
+    assert!(
+        artifact.path.is_dir(),
+        "the shipped host is the bundle directory"
     );
-    assert_eq!(
-        digest(&artifact.path),
-        field(&manifest, &["sha256"])
-            .as_str()
-            .expect("the manifest records a digest")
-            .to_ascii_lowercase(),
-        "the artifact's digest must be the digest its manifest records"
-    );
-    assert_eq!(
-        Some(artifact.sdk_version.as_str()),
-        field(&manifest, &["sdkVersion"]).as_str(),
-        "the SDK version the locator reports comes from the manifest"
-    );
-    assert_eq!(
-        field(&manifest, &["protocol"]).as_u64(),
-        Some(u64::from(PROTOCOL_VERSION)),
-        "the artifact must be built for the protocol this build speaks ({MANIFEST_FILE} records it)"
-    );
-
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join(ARTIFACT_DIR);
-    let name = repository_artifact_name();
-    let copy = repository.join(name);
-    let copy_manifest = read_manifest(&copy);
-    assert_eq!(
-        digest(&copy),
-        field(&copy_manifest, &["sha256"])
-            .as_str()
-            .expect("the repository manifest records a digest")
-            .to_ascii_lowercase(),
-        "the repository copy {name} must be the file {MANIFEST_FILE} describes"
-    );
-    assert_eq!(
-        std::fs::metadata(&copy).map(|data| data.len()).ok(),
-        field(&copy_manifest, &["bytes"]).as_u64(),
-        "the repository copy's size must be the size {MANIFEST_FILE} records"
-    );
+    verify_bundle_independently(&artifact);
     artifact
 }
 
-/// The manifest shipped beside an artifact.
-fn read_manifest(artifact: &Path) -> Value {
-    let path = artifact.with_file_name(MANIFEST_FILE);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("{} must be readable: {error}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("{} must be a JSON manifest: {error}", path.display()))
-}
-
-/// Name of this build's installed artifact, resolved the way `host_bin` resolves it.
-fn repository_artifact_name() -> &'static str {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("windows", "x86_64") => "omp-host-x86_64-pc-windows-msvc.exe",
-        ("windows", "aarch64") => "omp-host-aarch64-pc-windows-msvc.exe",
-        ("macos", "x86_64") => "omp-host-x86_64-apple-darwin",
-        ("macos", "aarch64") => "omp-host-aarch64-apple-darwin",
-        ("linux", "x86_64") => "omp-host-x86_64-unknown-linux-gnu",
-        ("linux", "aarch64") => "omp-host-aarch64-unknown-linux-gnu",
-        other => panic!("no host artifact is built for {other:?}"),
-    }
-}
-
-/// Lowercase hex sha256 of a file, read in fixed chunks so a 170 MB artifact is never held whole.
+/// Lowercase hex sha256 of a file, read in fixed chunks so a multi-hundred-megabyte bundle is
+/// never held whole.
 fn digest(path: &Path) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut file = std::fs::File::open(path)
@@ -129,7 +59,7 @@ fn digest(path: &Path) -> String {
     text
 }
 
-/// Re-derives a bundle's file list from disk, the way the compiled path re-derives its manifest.
+/// Re-derives a bundle's file list from disk, the way the manifest records it.
 fn verify_bundle_independently(artifact: &HostArtifact) {
     let manifest_path = artifact.path.join("manifest.json");
     let text = std::fs::read_to_string(&manifest_path)

@@ -1,7 +1,7 @@
 /**
  * End-to-end smoke: drives a real host process over the frozen NDJSON protocol.
  *
- * Source mode, `dist` mode and installed-binary mode all run this same driver, so a difference
+ * Source mode, built-bundle mode and installed-bundle mode all run this same driver, so a difference
  * between them is a packaging bug rather than a difference in what was tested. Evidence lands in
  * `host/evidence/w2-*.{frames.jsonl,stderr.log}` next to a machine-readable summary.
  *

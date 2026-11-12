@@ -306,8 +306,8 @@ pub(super) fn spawn(
     custom_env: &[(String, String)],
 ) -> IpcResult<HostChild> {
     let mut command = Command::new(&artifact.program);
-    // A compiled artifact carries its own settings; a bundle names its runtime flags and entry
-    // here, and its own arguments must come before `--data-root`.
+    // The bundle names its runtime flags and entry here; its own arguments must come before
+    // `--data-root`.
     command.args(&artifact.args);
     command.arg("--data-root").arg(&paths.data_root);
     command.current_dir(&paths.host_root);

@@ -2,7 +2,8 @@
 
 pub(crate) use super::*;
 
-/// One directory per case; see the compiled tests' `workspace` for why.
+/// One directory per case: two tests that share a path would read each other's manifest, and a
+/// product check whose result depends on test ordering is not worth having.
 fn workspace(case: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("omp-host-bundle-{case}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
@@ -65,6 +66,50 @@ fn a_verified_bundle_names_its_runtime_and_entry() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// A relative bundle path is resolved before verification: the child runs from a different cwd, so
+/// the hashed entry and the executed entry must both be absolute and identical.
+#[test]
+fn a_relative_bundle_path_is_resolved_before_any_read() {
+    let resolved = absolute_bundle(Path::new("binaries/bundle"));
+    assert!(resolved.is_absolute());
+    assert!(resolved.ends_with(Path::new("binaries").join("bundle")));
+}
+
+/// The regression this covers: a replacement that keeps the file's size *and* its modification
+/// time must still be refused. A verdict remembered under either of those two facts would hand
+/// back the previous answer and start a file nobody hashed.
+#[test]
+fn a_same_size_same_time_replacement_is_refused() {
+    let root = write_bundle(
+        "sametime",
+        &[
+            ("bun.exe", "runtime", b"runtime bytes"),
+            ("host.js", "bundle", b"real host bytes"),
+        ],
+        &["host.js"],
+        "host.js",
+    );
+    assert!(verify_bundle(&root).is_ok());
+    let entry = root.join("host.js");
+    let modified = fs::metadata(&entry)
+        .expect("metadata")
+        .modified()
+        .expect("mtime");
+    // Same length, same timestamp, different bytes.
+    fs::write(&entry, b"evil host bytes").expect("rewrite entry");
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&entry)
+        .expect("open entry")
+        .set_modified(modified)
+        .expect("restore mtime");
+    assert_eq!(
+        verify_bundle(&root).expect_err("swapped bytes").code,
+        ENGINE_CHECKSUM_MISMATCH
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// The regression this covers: a file whose bytes no longer match is refused even though the
 /// manifest still lists it, because every file is hashed and not merely found.
 #[test]
@@ -113,8 +158,9 @@ fn a_file_name_outside_the_bundle_is_refused() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// A bundle built for another protocol is refused with the same remedy the compiled artifact's
-/// refusal names, because the consequence is identical.
+/// A bundle built for another protocol is refused before it is started: it would accept the
+/// handshake and then ignore every command added since it was built. The refusal names both
+/// protocols and, in a development build, the command that rebuilds the artifact.
 #[test]
 fn a_bundle_for_another_protocol_is_refused() {
     let root = workspace("protocol");
@@ -129,7 +175,12 @@ fn a_bundle_for_another_protocol_is_refused() {
         .expect("manifest");
     let error = verify_bundle(&root).expect_err("another protocol");
     assert_eq!(error.code, ENGINE_PROTOCOL);
-    assert!(error.message.contains(&other.to_string()));
+    assert!(
+        error.message.contains(&other.to_string())
+            && error.message.contains(&PROTOCOL_VERSION.to_string()),
+        "the refusal states both protocols: {}",
+        error.message
+    );
     let _ = fs::remove_dir_all(&root);
 }
 

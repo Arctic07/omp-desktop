@@ -133,15 +133,15 @@ const ENGINE_COPY: Localized<EngineStatusCopy> = {
     engineVersionLabel: 'SDK version',
     engineTrustLabel: 'Host integrity',
     engineTrustVerified: 'Verified against the bundled manifest',
-    engineTrustUnverified: 'Not verified (development override, or no digest recorded for this platform)',
+    engineTrustUnverified: 'Not verified (development override only)',
     engineTrustMismatch: 'Checksum mismatch',
     engineTrustMismatchTitle: 'Host integrity check failed',
     engineTrustMismatchHint:
-      'The host binary on disk does not hash to the digest recorded in the manifest this build shipped with, so the host is not started. Rebuild it with `bun run host/build.ts --install`, or remove the binary override.',
+      'The engine bundle on disk does not match the manifest this build shipped with, so the host is not started. Reinstall the latest release.',
     engineProtocolMismatch: 'Protocol version mismatch',
     engineProtocolMismatchTitle: 'Host built for another protocol',
     engineProtocolMismatchHint:
-      'The host binary was built for a different protocol than this build speaks, so it is not started: such a host completes the handshake and then ignores every command added since it was built, which is how the engine pages end up empty with nothing stating why. Rebuild it with `bun run host/build.ts --install` and restart the application.',
+      'The engine bundle was built for a different protocol than this build speaks, so it is not started: such a host completes the handshake and then ignores every command added since it was built, which is how the engine pages end up empty with nothing stating why. Reinstall the latest release and restart the application.',
     protocolVersionLabel: 'Protocol version',
     credentialBackendLabel: 'Credential storage',
     credentialKeyringValue: 'OS keyring',
@@ -168,10 +168,10 @@ const ENGINE_COPY: Localized<EngineStatusCopy> = {
     retry: 'Retry',
     loading: 'Loading…',
     engineNotFound: 'No host found',
-    engineNotFoundHint: 'Point OMP_DESKTOP_HOST_BIN at the host executable, or put omp-host next to this app.',
+    engineNotFoundHint: 'Reinstall the application.',
     engineVersionUnknown: 'Host found, version unknown',
     engineVersionUnknownHint:
-      'No SDK version is recorded for this host: the manifest beside the artifact is missing, unreadable, or does not match it, and no running host has reported one either. Rebuild the host with `bun run host/build.ts --install`.',
+      'No SDK version is recorded for this host: the bundle manifest is missing, unreadable, or does not match its files, and no running host has reported one either. Reinstall the latest release.',
   },
   zh: {
     engineDescription: '来自本地引擎宿主的只读信息。',
@@ -179,15 +179,15 @@ const ENGINE_COPY: Localized<EngineStatusCopy> = {
     engineVersionLabel: 'SDK 版本',
     engineTrustLabel: '宿主完整性',
     engineTrustVerified: '已校验（与随包清单一致）',
-    engineTrustUnverified: '未校验（开发覆盖，或该平台未记录摘要）',
+    engineTrustUnverified: '未校验（仅开发覆盖）',
     engineTrustMismatch: '摘要不匹配',
     engineTrustMismatchTitle: '宿主完整性校验失败',
     engineTrustMismatchHint:
-      '磁盘上的宿主二进制与该构建随包清单记录的摘要不一致，因此不会启动宿主。请用 `bun run host/build.ts --install` 重新构建，或移除二进制覆盖配置。',
+      '磁盘上的引擎宿主包与该构建随包清单记录的摘要不一致，因此不会启动宿主。请重新安装最新版本。',
     engineProtocolMismatch: '协议版本不匹配',
     engineProtocolMismatchTitle: '宿主产物按另一个协议构建',
     engineProtocolMismatchHint:
-      '宿主二进制按与本版本不同的协议构建，因此不会启动：这样的宿主能完成握手，却会忽略自它构建之后新增的所有命令——引擎状态页面会一直空着，且没有任何说明。请用 `bun run host/build.ts --install` 重新构建宿主产物，然后重启应用。',
+      '引擎宿主包按与本版本不同的协议构建，因此不会启动：这样的宿主能完成握手，却会忽略自它构建之后新增的所有命令——引擎状态页面会一直空着，且没有任何说明。请重新安装最新版本并重启应用。',
     protocolVersionLabel: '协议版本',
     credentialBackendLabel: '凭据存储',
     credentialKeyringValue: '系统安全存储（OS keyring）',
@@ -214,11 +214,10 @@ const ENGINE_COPY: Localized<EngineStatusCopy> = {
     retry: '重试',
     loading: '正在读取…',
     engineNotFound: '未找到宿主',
-    engineNotFoundHint:
-      '请把环境变量 OMP_DESKTOP_HOST_BIN 指向 omp-host 可执行文件，或把 omp-host 放到应用同目录中。',
+    engineNotFoundHint: '请重新安装应用。',
     engineVersionUnknown: '已找到宿主，版本未知',
     engineVersionUnknownHint:
-      '该宿主没有可查的 SDK 版本：产物旁的清单缺失、无法读取，或与产物不符，也没有正在运行的宿主报告过版本。可用 `bun run host/build.ts --install` 重建宿主。',
+      '该宿主没有可查的 SDK 版本：宿主包清单缺失、无法读取，或与其文件不符，也没有正在运行的宿主报告过版本。请重新安装最新版本。',
   },
 }
 

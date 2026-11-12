@@ -49,7 +49,7 @@ Forbidden: reimplementing plugin discovery, manifest semantics, the enablement s
 
 **Permissions** are the manifest declaration *and* the user's grant. The four high-risk capabilities — `ui.theme.css`, `plugin.process`, `renderer.extension`, `agent.complete` (it spends the user's money) — are consented separately and never share one sentence of copy; the confirmation is per installation and compares the code a package runs, not the permissions it declares (`consent::widened_reasons`). A built-in is granted by being enabled and cannot be disabled or uninstalled (`PLUGIN_BUILTIN_PROTECTED`); authenticity means the reserved marketplace `omp-desktop-builtin` and a `source_uri` inside this build's resource root — a registration under that name pointing at another absolute local path is an earlier build's leftover and is repointed at this build's bundle, while a non-local source is refused.
 
-**Plugin processes** are `omp-host.exe --plugin-worker`, the same artifact. Caps, backoff, and timeouts are the constants in `process/mod.rs`; stop order is `worker_unload` then kill; a crash changes status and never auto-disables, and the supervisor logs the exit code. A crash after a live run retries on a doubling backoff until its restart budget is spent; surviving the reset window (or a manual restart) forgives the budget, and `omp.desktop.autoRestart: false` refuses the retries and goes straight to `crashed`. A plugin's calls into the desktop pass the same gate table as the bridge — there is no second decision table.
+**Plugin processes** are the same host bundle started with `--plugin-worker`. Caps, backoff, and timeouts are the constants in `process/mod.rs`; stop order is `worker_unload` then kill; a crash changes status and never auto-disables, and the supervisor logs the exit code. A crash after a live run retries on a doubling backoff until its restart budget is spent; surviving the reset window (or a manual restart) forgives the budget, and `omp.desktop.autoRestart: false` refuses the retries and goes straight to `crashed`. A plugin's calls into the desktop pass the same gate table as the bridge — there is no second decision table.
 
 **Renderer slots** serve only `/<key>/renderer.mjs`, realpath inside the plugin root. The module runs in the application's own realm and can read and write the page, so its trust level is labelled honestly and never called a sandbox. React comes from `host.react`; bare module imports are refused; every mount point is wrapped in an `ErrorBoundary`.
 
@@ -67,7 +67,7 @@ Forbidden: reimplementing plugin discovery, manifest semantics, the enablement s
 
 ### Engine protocol
 
-One host process embeds the SDK and speaks NDJSON over stdio. Frames correlate by their `id`, never by arrival order; session-scoped events and `state` carry `sessionId`; a reply reaches its requester by `id`. `PROTOCOL_VERSION` must be equal in `host/src/constants.ts` and `src-tauri/src/services/runtime/mod.rs`, and adding or removing a command *is* a protocol change that bumps it — otherwise an old artifact handshakes successfully and swallows the new command as an unknown frame. The host reads `omp-host.json.protocol` before spawning and refuses a mismatch (`ENGINE_PROTOCOL`).
+One host process embeds the SDK and speaks NDJSON over stdio. Frames correlate by their `id`, never by arrival order; session-scoped events and `state` carry `sessionId`; a reply reaches its requester by `id`. `PROTOCOL_VERSION` must be equal in `host/src/constants.ts` and `src-tauri/src/services/runtime/mod.rs`, and adding or removing a command *is* a protocol change that bumps it — otherwise an old artifact handshakes successfully and swallows the new command as an unknown frame. The launcher reads the packaged bundle manifest's `protocol` before spawning and refuses a mismatch (`ENGINE_PROTOCOL`).
 
 - **Frame caps** (values in `host/src/constants.ts`): a physical line, logical-frame reassembly, and prompt length (host side and the real host-through-desktop path) each have a ceiling. Only host outbound frames fragment. Anything over a cap is refused explicitly (`FRAME_TOO_LARGE`, or a redacted `invalid_input`), never truncated silently.
 - **A routing id is not an engine session id.** Identify a session by the `sessionId` in the `session_open` reply (or `state.sessionFile`), never by `state.sessionId`.
@@ -277,31 +277,34 @@ Verify what the change touches. "The code looks correct" is not delivery. Which 
 
 ### Artifact rebuild
 
-Everything runnable here comes from a build artifact: `host/dist/omp-host.exe` (the host), `src-tauri/binaries/omp-host-<triple>.exe` (Tauri's `externalBin` target), `src-tauri/target/{debug,release}/omp-host.exe` (the running copy), `src-tauri/target/{debug,release}/omp_desktop.exe` (the application), and `src/dist/` (the frontend, embedded in a release build and served by Vite through `devUrl` in dev). Source changed without a rebuild is a change nobody can see: the user still runs the old behavior, and "it does not start" gets misdiagnosed as a code defect.
+Everything runnable here comes from a build artifact: the host is the bundle at `host/dist/bundle/` (runtime, JavaScript entry, addons, and the manifest that names them), installed to `src-tauri/binaries/bundle/` and shipped by the installer as `bundle/` beside the application; the application is `src-tauri/target/{debug,release}/omp_desktop.exe`; the frontend is `src/dist/` (embedded in a release build and served by Vite through `devUrl` in dev). Source changed without a rebuild is a change nobody can see: the user still runs the old behavior, and "it does not start" gets misdiagnosed as a code defect.
 
-**Rebuild when** `host/src/**` changed (host artifacts), `src-tauri/**` changed (application binary), or `src/src/**` changed (frontend artifact — `pnpm --filter src build` writes `src/dist/`, the `frontendDist`).
+**Rebuild when** `host/src/**` changed (host bundle), `src-tauri/**` changed (application binary), or `src/src/**` changed (frontend artifact — `pnpm --filter src build` writes `src/dist/`, the `frontendDist`).
 
 **Procedure** (complete it in one pass; do not ask first):
 
-1. **Close only the instance that occupies this build's profile**, by `ExecutablePath`, never by process name. Only an instance running from the profile being rebuilt holds `omp-host.exe` open (`target/release` for `pnpm tauri:build`, `target/debug` for `pnpm tauri:dev`), and that is what makes the externalBin copy and `cargo build` fail with `PermissionDenied`. `pnpm --filter src build` and `pnpm host:install` write only `src/dist/`, `host/dist/`, and `src-tauri/binaries/`, so they require closing nothing.
+1. **Close only the instance that occupies this build's profile**, by `ExecutablePath`, never by process name. Only an instance running from the profile being rebuilt holds that profile's files open (`target/release` for `pnpm tauri:build`, `target/debug` for `pnpm tauri:dev`), and that is what makes the copy and `cargo build` fail with `PermissionDenied`. `pnpm --filter src build` writes only `src/dist/` and requires closing nothing; `pnpm host:install` replaces `src-tauri/binaries/bundle/`, and a dev or repository-release instance runs its host from that directory, so close the instance whose host is running from it before a host rebuild.
    - The installed copy (`%LOCALAPPDATA%\Omp Desktop\`) holds no repository file: a repository rebuild must not close it, because it may be the user's only window or the application this session runs in. Dev, repository release, and installed are three instances; rebuild one layer, close only that layer (`AGENTS.md` states the identity check).
    - Dev has its own identity: only `pnpm tauri:dev`, which passes `--config src-tauri/tauri.dev.conf.json` (`identifier` `com.omp.desktop.dev`, data root `%LOCALAPPDATA%\com.omp.desktop.dev`). A bare `pnpm tauri dev` takes the installed identity, gets folded by its single-instance lock, and pollutes its data root ([postmortem 0002](postmortems/0002-bare-tauri-dev-used-the-installed-identity.md)).
-   - Who started it decides whether you may close it. The parent chain in desktop form is `bash → omp-host.exe → omp_desktop.exe`. An ancestor of the current session is never closed — hand the close, rebuild, and restart to the user. A process you started yourself (your own child) is closed normally. A process unrelated to your tree is closed by profile, and the delivery note names which one (name and path).
+   - Who started it decides whether you may close it. The parent chain in desktop form is `bash → bun.exe (the host) → omp_desktop.exe`. An ancestor of the current session is never closed — hand the close, rebuild, and restart to the user. A process you started yourself (your own child) is closed normally. A process unrelated to your tree is closed by profile, and the delivery note names which one (name and path).
    - Never close by process name ([postmortem 0001](postmortems/0001-rebuild-kill-by-process-name.md)): `Stop-Process -Force` by name also kills the installed copy and the session's own host. Close by profile:
    ```powershell
    $profile = (Join-Path (Get-Location) 'src-tauri\target\release')   # debug for pnpm tauri:dev
-   Get-CimInstance Win32_Process -Filter "Name='omp_desktop.exe' or Name='omp-host.exe'" |
-     Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($profile, 'OrdinalIgnoreCase') } |
+   $hostBundle = (Join-Path (Get-Location) 'src-tauri\binaries\bundle')
+   Get-CimInstance Win32_Process -Filter "Name='omp_desktop.exe' or Name='bun.exe'" |
+     Where-Object { $_.ExecutablePath -and (
+       $_.ExecutablePath.StartsWith($profile, 'OrdinalIgnoreCase') -or
+       $_.ExecutablePath.StartsWith($hostBundle, 'OrdinalIgnoreCase')
+     ) } |
      ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
    ```
-2. **Host artifacts** (`host/src/**` changed): `pnpm host:install` writes `host/dist/` and `src-tauri/binaries/` and self-verifies its checksum.
+2. **Host bundle** (`host/src/**` changed): `pnpm host:install` writes `host/dist/bundle/`, copies it to `src-tauri/binaries/bundle/`, and hashes every file against the manifest. Nothing hidden is left from an earlier build: the copy is whole, not patched.
 3. **Frontend artifact** (`src/src/**` changed): `pnpm --filter src build` (the root `pnpm build` is the same thing) writes `src/dist/`.
-4. **Application** (`src-tauri/**` changed, or the embedded frontend must change): `pnpm tauri:build --no-bundle` builds release with `src/dist/` embedded, then runs `scripts/clean-build-cache.mjs`, which deletes only historical Cargo incremental directories and interrupted `.tmp*.temp-archive` leftovers and preserves dependency artifacts (a failure leaves the scene intact). A full wipe stays manual: `cargo clean --manifest-path src-tauri/Cargo.toml`. Never use bare `cargo build --release`: the repository declares no `custom-protocol` feature, the `dev` cfg depends on it (`tauri:build.rs`: `dev = !custom_protocol`), only the CLI turns it on, and bare cargo produces a binary that still points at `localhost:1421`. For `target/debug`, use `pnpm tauri:dev`, which copies `externalBin` itself.
-5. **Sync the running copies.** `target/{debug,release}/omp-host.exe` and `omp-host.json` are copied by `pnpm tauri:dev`; `pnpm tauri build --no-bundle` does not refresh them. After a host-only rebuild, copy `host/dist/omp-host.exe` and `omp-host.json` into **both** profiles' `target/` by hand (the two files' `builtAt` and `sha256` come from one build), or the release application fails the handshake and refuses to start ([postmortem 0003](postmortems/0003-stale-host-copy-in-target-release.md)).
+4. **Application** (`src-tauri/**` changed, or the embedded frontend must change): `pnpm tauri:build --no-bundle` builds release with `src/dist/` embedded, then runs `scripts/clean-build-cache.mjs`, which deletes only historical Cargo incremental directories and interrupted `.tmp*.temp-archive` leftovers and preserves dependency artifacts (a failure leaves the scene intact). A full wipe stays manual: `cargo clean --manifest-path src-tauri/Cargo.toml`. Never use bare `cargo build --release`: the repository declares no `custom-protocol` feature, the `dev` cfg depends on it (`tauri:build.rs`: `dev = !custom_protocol`), only the CLI turns it on, and bare cargo produces a binary that still points at `localhost:1421`. For `target/debug`, use `pnpm tauri:dev`; a development run resolves `src-tauri/binaries/bundle`, so a host-only rebuild needs no copy into `target/`.
 
 **Icons and Windows resources.** The exe icon and the tray icon (`services/presence.rs`'s `default_window_icon`) both come from the Windows resource `tauri_build::build()` generates in `src-tauri/build.rs`, and `tauri_build` does not list `bundle.icon` in `rerun-if-changed`; `build.rs` adds `cargo:rerun-if-changed=icons` itself. When an icon "did not change", confirm that line still exists, then check whether the build script actually re-ran (`target/{profile}/build/omp_desktop-*/invoked.timestamp`) ([postmortem 0004](postmortems/0004-rebuilt-exe-kept-the-old-icon.md)).
 
-**Verification.** The **four** host artifact locations (`host/dist/`, `src-tauri/binaries/`, `src-tauri/target/release/`, `src-tauri/target/debug/`) agree on `sha256` and `bytes` (compare each `omp-host.json`, and confirm its `protocol` equals the desktop's `PROTOCOL_VERSION`); the release application contains the current frontend's asset names; the delivery note states which layers were rebuilt and which were not.
+**Verification.** The built and installed bundle copies (`host/dist/bundle/`, `src-tauri/binaries/bundle/`) agree on every file's `sha256` and `bytes`, the manifest's `protocol` equals the desktop's `PROTOCOL_VERSION` on both sides, and its `sdkVersion` equals the pinned dependency — `pnpm host:install` and the release build's gate (`src-tauri/build.rs`) each refuse a disagreement. The release application contains the current frontend's asset names; the delivery note states which layers were rebuilt and which were not.
 
 **Failure handling.** A file still locked after closing the application: retry once. Then stop and report the process and path holding it — never retry in a loop. Renaming a running exe aside is allowed on Windows as a temporary measure, and the note records the workaround and the leftover file.
 
@@ -332,6 +335,9 @@ No stage delivers a half-finished piece, fabricated data, an empty function, an 
 
 Any installed user must reach the current version from any earlier one. Structural changes, protocol changes, and engine upgrades never damage existing data, drop fields, or leave a user stuck on "it installs but will not upgrade". The signing key custodian, the update source, and the minimum upgradable version are decided by the user before the first release.
 
+- **The installed user never builds, packages, or assembles resources.** Reaching a release requires no checkout, toolchain, Bun, Node, npm, or command from the person using the application: the update package carries the application, the embedded frontend, and the complete host bundle, and a packaged build's remedy is only "update" or "reinstall the latest release". A build command appears only in a development build's message. An installer that depends on a step run on the target machine is an unfinished release, not a supported path; a missing, stale, or mismatched host is a build failure (`src-tauri/build.rs`), never a user task.
+- **Antivirus false positives are removed on this side, not clicked through by the user.** The shipped host is the bundle layout - the vendor-signed runtime plus plain files - and the compiled self-extracting layout is never packaged; a release is not published until the produced installer scans clean with the platform antivirus, and a detection blocks publishing until the artifact or its signature changes. Authenticode-sign the installer when a certificate exists; without one, the SmartScreen residue is stated in the delivery note instead of being hidden behind an instruction to ignore the warning.
+
 ### Version axes
 
 Five independent axes; none substitutes for another. The current value of each lives in its definition site, never copied into this file.
@@ -341,12 +347,12 @@ Five independent axes; none substitutes for another. The current value of each l
 | `APP_VERSION` | `package.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`, `host/src/constants.ts` (`HOST_VERSION`) | Any semver step; all four agree |
 | `SCHEMA_VERSION` | `src-tauri/src/services/store/schema.rs` | Increases only; each step ships its DDL, migration steps, and an upgrade test |
 | `PROTOCOL_VERSION` | `host/src/constants.ts` and `src-tauri/src/services/runtime/mod.rs` | Both sides step together when a payload field's **meaning or type** changes |
-| `SDK_VERSION` | `host/package.json` and `omp-host.json`'s `sdkVersion` | An upgrade is an engine upgrade — see [Dependencies](#dependencies) and [Engine upgrade and distribution](#engine-upgrade-and-distribution) |
+| `SDK_VERSION` | `host/package.json` and the bundle manifest's `sdkVersion` | An upgrade is an engine upgrade — see [Dependencies](#dependencies) and [Engine upgrade and distribution](#engine-upgrade-and-distribution) |
 | Plugin `schema_version` | `src-tauri/src/models/plugins.rs` | Steps when the plugin form changes; an older form is refused as `valid=false` |
 
 Adding an optional field alone never bumps `PROTOCOL_VERSION`: that would refuse artifacts that are in fact compatible.
 
-Four assertions hold before every release: **A1** the four `APP_VERSION` sites agree; **A2** `SCHEMA_VERSION` equals the highest defined `apply_vN` and every `N > 1` has an upgrade test; **A3** the four host artifact locations agree on `sha256` and `bytes` ([Artifact rebuild](#artifact-rebuild)); **A4** `PROTOCOL_VERSION` is equal on both sides and equals `omp-host.json.protocol`.
+Four assertions hold before every release: **A1** the four `APP_VERSION` sites agree; **A2** `SCHEMA_VERSION` equals the highest defined `apply_vN` and every `N > 1` has an upgrade test; **A3** the built and installed bundle copies agree on every file's `sha256` and `bytes` ([Artifact rebuild](#artifact-rebuild)); **A4** `PROTOCOL_VERSION` is equal on both sides and equals the packaged bundle manifest's `protocol`, whose `sdkVersion` equals the pinned dependency.
 
 ### Release versions and publishing
 
@@ -376,7 +382,7 @@ Four assertions hold before every release: **A1** the four `APP_VERSION` sites a
 
 ### Engine upgrade and distribution
 
-- An SDK upgrade is an engine upgrade: update the pinned version and `omp-host.json`'s `sdkVersion`, then run the minimal "old data plus new engine" path — handshake → session list → open a historical session → one prompt.
+- An SDK upgrade is an engine upgrade: update the pinned version, rebuild the host bundle so its manifest records the new `sdkVersion`, then run the minimal "old data plus new engine" path — handshake → session list → open a historical session → one prompt.
 - An update package carries three layers: the application, the embedded frontend, and the host artifact. The engine and its runtime are never downloaded or replaced at runtime, and no engine copy is written into user data.
 - Update packages are signed and the client accepts only verified ones. The signing key never enters the repository, logs, or CI output.
 - **Version monotonicity**: a remote version is strictly greater than the local one; re-publishing different content at one version is a release incident, and rolling back means publishing a higher version, never re-pointing the feed at an older one.
@@ -492,7 +498,7 @@ When adding a gate or guard, run the **negative control**: introduce the regress
 
 ### Test the real entry path
 
-The real entry path is the shipped artifact: `host/dist/omp-host.exe`, the copies in `src-tauri/binaries/` and `target/{debug,release}/`, the frontend embedded in `src/dist/`, and `cargo test --lib` running against the `resource.lib` that `tauri_build` wrote. A hand-assembled fixture proves the wiring moved bytes, nothing more.
+The real entry path is the shipped artifact: the host bundle at `host/dist/bundle/`, the installed copy at `src-tauri/binaries/bundle/` (and `$INSTDIR\bundle` after an install), the frontend embedded in `src/dist/`, and `cargo test --lib` running against the `resource.lib` that `tauri_build` wrote. A hand-assembled fixture proves the wiring moved bytes, nothing more.
 
 ### Plan coverage in the same change
 

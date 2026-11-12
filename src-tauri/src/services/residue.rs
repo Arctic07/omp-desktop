@@ -1,15 +1,15 @@
 //! Files an earlier installation left beside the application executable.
 //!
-//! Switching the host from a compiled `omp-host.exe` to the `bundle/` directory leaves the old
-//! artifact in place: an installer writes the files it ships and removes none it does not, so a
-//! 178 MB unsigned executable that this build will never start survives every upgrade. That file is
-//! what antivirus engines flag, and it is dead weight on disk besides.
+//! The shipped host is the `bundle/` directory. Every earlier installation shipped the compiled
+//! `omp-host.exe`/`omp-host.json` pair instead, and an installer writes the files it ships and
+//! removes none it does not: without this sweep a 178 MB unsigned executable that this build will
+//! never start survives every upgrade. That file is what antivirus engines flag, and it is dead
+//! weight on disk besides.
 //!
 //! The rule is an allowlist of exact names, in one directory, never recursive:
 //!
 //! - `omp_desktop.exe.old*` - the backup the update path makes of the previous application binary.
-//! - `omp-host.exe` and `omp-host.json` - *only* when a `bundle/` directory ships beside them,
-//!   because then the compiled layout is the retired one. Without a bundle these two are the host.
+//! - `omp-host.exe` and `omp-host.json` - the retired compiled layout this build never starts.
 //!
 //! Nothing under the data root is touched, and nothing in the installation directory is matched by
 //! pattern beyond the `.old` prefix: `plugin-templates`, `builtin-browser-marketplace`, `bundle`,
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use crate::services::log;
 
-/// Names the compiled layout owned, removed only when the bundle layout replaced it.
+/// Names the retired compiled layout owned.
 const COMPILED_LAYOUT: &[&str] = &["omp-host.exe", "omp-host.json"];
 
 /// Prefix of the backups the update path leaves behind.
@@ -35,10 +35,9 @@ pub(crate) struct Removed {
 
 /// Removes the files an earlier installation left behind, and nothing else.
 ///
-/// `directory` is the application's own directory. `bundle_present` says whether this build ships
-/// the non-compiled layout there; only then is a compiled host considered retired. A directory that
-/// cannot be read is not an error: residue is a cleanup, and a start must never fail over it.
-pub(crate) fn sweep(directory: &Path, bundle_present: bool) -> Vec<Removed> {
+/// `directory` is the application's own directory. A directory that cannot be read is not an error:
+/// residue is a cleanup, and a start must never fail over it.
+pub(crate) fn sweep(directory: &Path) -> Vec<Removed> {
     let mut removed = Vec::new();
     let Ok(entries) = fs::read_dir(directory) else {
         return removed;
@@ -48,8 +47,8 @@ pub(crate) fn sweep(directory: &Path, bundle_present: bool) -> Vec<Removed> {
         let Some(name) = name.to_str() else {
             continue;
         };
-        let retired = name.starts_with(APPLICATION_BACKUP_PREFIX)
-            || (bundle_present && COMPILED_LAYOUT.contains(&name));
+        let retired =
+            name.starts_with(APPLICATION_BACKUP_PREFIX) || COMPILED_LAYOUT.contains(&name);
         if !retired {
             continue;
         }
@@ -73,8 +72,8 @@ pub(crate) fn sweep(directory: &Path, bundle_present: bool) -> Vec<Removed> {
 }
 
 /// Runs the sweep for this installation and writes one line when it removed anything.
-pub(crate) fn sweep_installation(install_directory: &Path, bundle_present: bool) {
-    let removed = sweep(install_directory, bundle_present);
+pub(crate) fn sweep_installation(install_directory: &Path) {
+    let removed = sweep(install_directory);
     if removed.is_empty() {
         return;
     }
@@ -105,30 +104,15 @@ mod tests {
     /// The regression this covers: the retired compiled host survives an upgrade and stays on disk
     /// as an unrecognized executable that this build never starts.
     #[test]
-    fn the_retired_compiled_host_is_removed_when_a_bundle_ships() {
+    fn the_retired_compiled_host_is_removed() {
         let root = workspace("retired");
-        fs::create_dir_all(root.join("bundle")).expect("bundle");
         let host = touch(&root, "omp-host.exe");
         let manifest = touch(&root, "omp-host.json");
 
-        let removed = sweep(&root, true);
+        let removed = sweep(&root);
 
         assert_eq!(removed.len(), 2);
         assert!(!host.exists() && !manifest.exists());
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    /// Without a bundle the compiled host *is* the host: removing it would break the installation
-    /// that just started.
-    #[test]
-    fn the_compiled_host_is_kept_when_no_bundle_ships() {
-        let root = workspace("kept");
-        let host = touch(&root, "omp-host.exe");
-
-        let removed = sweep(&root, false);
-
-        assert!(removed.is_empty());
-        assert!(host.exists());
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -139,7 +123,7 @@ mod tests {
         let old = touch(&root, "omp_desktop.exe.old");
         let dated = touch(&root, "omp_desktop.exe.old-20261025002801");
 
-        let removed = sweep(&root, false);
+        let removed = sweep(&root);
 
         assert_eq!(removed.len(), 2);
         assert!(!old.exists() && !dated.exists());
@@ -169,7 +153,7 @@ mod tests {
             touch(&root, name);
         }
 
-        let removed = sweep(&root, true);
+        let removed = sweep(&root);
 
         assert!(removed.is_empty(), "removed {removed:?}");
         for name in keeps {

@@ -1,10 +1,10 @@
 /**
- * `omp-host.exe --plugin-worker …` argv, parsed before anything else starts.
+ * The host bundle's `--plugin-worker` argv, parsed before anything else starts.
  *
  * The form is frozen with the Rust supervisor (plan §6.2):
  *
  * ```text
- * omp-host.exe --plugin-worker --root <absolute dir> --install <installId> --id <pluginId> --scope <user|project>
+ * bun <entry> --plugin-worker --root <absolute dir> --install <installId> --id <pluginId> --scope <user|project>
  * ```
  *
  * The parse is deliberately strict: every flag is required exactly once, no other flag is read, and

@@ -1,22 +1,20 @@
-//! Locating the host program and verifying it against the manifest shipped next to it.
+//! Locating the shipped host and verifying it against its bundle manifest.
 //!
-//! Two layouts are understood. The compiled layout is one artifact - `omp-host[-<triple>].exe`
-//! plus the `omp-host.json` the build wrote beside it. The bundle layout is a directory -
-//! `bundle/manifest.json` plus the runtime, the JavaScript entry and the addons it lists - which
-//! is what `bun run host/build.ts --bundle` writes and what an antivirus engine sees as an
-//! ordinary runtime with plain files instead of an unrecognized self-extracting executable.
+//! There is exactly one shipped form: `bundle/` - a `manifest.json`, the vendor's runtime, one
+//! plain JavaScript entry, and the addons the manifest lists - written by
+//! `bun run host/build.ts`. The compiled self-extracting executable this project used to
+//! ship is not a candidate at all: a stale copy of it beside an upgrade is how an application once
+//! started a host built for the previous protocol.
 //!
-//! Either way the files are verified before the process is spawned, because a program this
-//! application did not build is a different release than the one it was tested against. A bundle
-//! names every file it needs, so each one is hashed; nothing is started on the strength of the
-//! directory merely existing.
+//! Every file the manifest names is hashed before the process is spawned, because a program this
+//! application did not build is a different release than the one it was tested against; nothing is
+//! started on the strength of the directory merely existing.
 //!
-//! Lookup order: the development override, then the directory of the application executable
-//! (a `bundle/` directory there wins over a compiled executable, because its presence is the
-//! deliberate choice of layout), then the repository path a development build runs from. The
-//! first candidate that exists decides the answer: a located but unusable artifact is reported,
-//! never skipped in favour of a later one, so a broken installation cannot silently fall back to
-//! whatever else is on disk.
+//! Lookup order: the development override, then `bundle/` beside the application executable, then
+//! the same name under the packaged resource directory (macOS and Linux do not place it beside the
+//! executable), then the repository copy a development build runs from. The first candidate that
+//! exists decides the answer: a located but unusable bundle is reported, never skipped in favour
+//! of a later one, so a broken installation cannot silently fall back to whatever else is on disk.
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -30,11 +28,9 @@ use crate::errors::{
 };
 use crate::services::runtime::PROTOCOL_VERSION;
 
-/// Development override. Used only when it points at an existing file.
+/// Development override: tried before the installed copies. A path that does not verify is reported
+/// instead of falling through to another copy.
 pub(crate) const ENV_OVERRIDE: &str = "OMP_DESKTOP_HOST_BIN";
-
-/// Manifest the build writes next to the binary (contract §1.2).
-const MANIFEST_FILE: &str = "omp-host.json";
 
 /// The packaged application's resource directory, set once at start-up.
 ///
@@ -63,25 +59,6 @@ const MAX_BUNDLE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Digest reads happen in fixed chunks, so a two hundred megabyte artifact is never held whole.
 const CHUNK_BYTES: usize = 64 * 1024;
 
-/// Ceiling on the artifact this host is willing to hash. The shipped host is around two hundred
-/// megabytes; anything far past that is not the file the manifest describes, and hashing it would
-/// only make the refusal slower.
-const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
-
-/// The manifest's own shape. `builtAt`, `target`, `bunVersion` and `entry` are written by the
-/// build but not needed here, so they are simply not read.
-#[derive(Debug, Clone, Deserialize)]
-struct Manifest {
-    #[serde(rename = "sdkVersion")]
-    sdk_version: String,
-    bytes: u64,
-    sha256: String,
-    /// Protocol version the artifact was built for (`host/build.ts` writes it from the host's own
-    /// `PROTOCOL_VERSION`). A required field on purpose: an artifact whose manifest does not state
-    /// one is an artifact this build cannot vouch for, the same as a digest it does not match.
-    protocol: u32,
-}
-
 /// One file a bundle manifest lists, with the size and digest it was written under.
 #[derive(Debug, Clone, Deserialize)]
 struct BundleFile {
@@ -91,7 +68,7 @@ struct BundleFile {
     sha256: String,
 }
 
-/// The bundle's manifest (`build.ts --bundle` writes it beside the files it describes).
+/// The bundle's manifest (`build.ts` writes it beside the files it describes).
 #[derive(Debug, Clone, Deserialize)]
 struct BundleManifest {
     layout: String,
@@ -107,21 +84,14 @@ struct BundleManifest {
 /// A located, verified artifact.
 #[derive(Debug, Clone)]
 pub(crate) struct HostArtifact {
-    /// The program to execute: the compiled executable, or the bundle's runtime.
+    /// The program to execute: the bundle's runtime.
     pub(crate) program: PathBuf,
-    /// Arguments that belong before the caller's own. A bundle names its entry here; a compiled
-    /// artifact names none.
+    /// Runtime flags and the bundle's entry, rebuilt from its manifest.
     pub(crate) args: Vec<std::ffi::OsString>,
-    /// What the runtime status shows: the executable, or the bundle directory.
+    /// What the runtime status shows: the bundle directory.
     pub(crate) path: PathBuf,
     /// SDK version the artifact was built against, as its manifest records it.
     pub(crate) sdk_version: String,
-}
-
-/// A place the host may be, before anything about it is trusted.
-enum Candidate {
-    Compiled(PathBuf),
-    Bundle(PathBuf),
 }
 
 /// What the settings page is shown. Never fails: a missing or unverifiable artifact is data here,
@@ -145,30 +115,25 @@ impl HostBinInfo {
     }
 }
 
-/// Absolute path of the host binary, refusing anything that does not match its manifest.
+/// Absolute path of the host bundle, refusing anything that does not match its manifest.
 ///
-/// Reads and hashes a large file, so callers run it through `spawn_blocking`.
+/// Reads and hashes a large directory, so callers run it through `spawn_blocking`.
 pub(crate) fn locate() -> IpcResult<HostArtifact> {
-    match locate_candidate() {
-        Some(Candidate::Compiled(path)) => verify(&path),
-        Some(Candidate::Bundle(directory)) => verify_bundle(&directory),
-        None => Err(IpcError::new(
+    match locate_bundle() {
+        Some(directory) => verify_bundle(&directory),
+        None => Err(IpcError::from_message(
             ENGINE_NOT_FOUND,
-            "The engine host program was not found. Build it with the host build script and try again.",
+            missing_host_message(),
         )),
     }
 }
 
 /// The located host, as shown in the runtime status.
 pub(crate) fn info() -> HostBinInfo {
-    let Some(candidate) = locate_candidate() else {
+    let Some(directory) = locate_bundle() else {
         return HostBinInfo::absent();
     };
-    let (path, verified) = match &candidate {
-        Candidate::Compiled(path) => (path.clone(), verify(path)),
-        Candidate::Bundle(directory) => (directory.clone(), verify_bundle(directory)),
-    };
-    match verified {
+    match verify_bundle(&directory) {
         Ok(artifact) => HostBinInfo {
             path: Some(artifact.path),
             sdk_version: artifact.sdk_version,
@@ -176,7 +141,7 @@ pub(crate) fn info() -> HostBinInfo {
             error: None,
         },
         Err(error) => HostBinInfo {
-            path: Some(path),
+            path: Some(directory),
             sdk_version: String::new(),
             verified: false,
             // Only the artifact codes are ever reported here; anything else would be a programming
@@ -190,201 +155,80 @@ pub(crate) fn info() -> HostBinInfo {
     }
 }
 
-/// The first candidate that exists, in the documented order.
-fn locate_candidate() -> Option<Candidate> {
+/// The first bundle directory that exists, in the documented order.
+fn locate_bundle() -> Option<PathBuf> {
     if let Some(value) = std::env::var_os(ENV_OVERRIDE) {
         if !value.is_empty() {
-            // A development override names either layout: a directory is a bundle, a file is a
-            // compiled artifact. Neither is checked for existence here beyond that shape, so the
-            // refusal that follows can name what is wrong.
-            let path = PathBuf::from(value);
-            return Some(if path.is_dir() {
-                Candidate::Bundle(path)
-            } else {
-                Candidate::Compiled(path)
-            });
+            // The override names a directory even when it does not exist: the refusal that follows
+            // is what says so, and falling through to the installed copy would hide the mistake.
+            return Some(PathBuf::from(value));
         }
     }
     let application = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
     if let Some(directory) = application {
-        // A shipped bundle is the deliberate choice of layout, so it wins over a compiled
-        // executable that happened to survive an upgrade in the same directory.
         let bundle = directory.join(BUNDLE_DIR);
         if bundle.join(BUNDLE_MANIFEST).is_file() {
-            return Some(Candidate::Bundle(bundle));
-        }
-        for name in host_file_names() {
-            let candidate = directory.join(name);
-            if candidate.is_file() {
-                return Some(Candidate::Compiled(candidate));
-            }
+            return Some(bundle);
         }
     }
     // A packaged bundle ships as a resource, which on macOS and Linux is not the exe's directory.
     if let Some(directory) = RESOURCE_DIR.get() {
         let bundle = directory.join(BUNDLE_DIR);
         if bundle.join(BUNDLE_MANIFEST).is_file() {
-            return Some(Candidate::Bundle(bundle));
+            return Some(bundle);
         }
     }
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    if let Some(name) = target_file_name() {
-        let candidate = repository.join(name);
-        if candidate.is_file() {
-            return Some(Candidate::Compiled(candidate));
-        }
-    }
     let bundle = repository.join(BUNDLE_DIR);
     if bundle.join(BUNDLE_MANIFEST).is_file() {
-        return Some(Candidate::Bundle(bundle));
+        return Some(bundle);
     }
     None
 }
 
-/// Names of the host binary as an installed bundle spells them: Tauri strips the triple from an
-/// `externalBin` when it bundles, while the development tree keeps it.
-fn host_file_names() -> Vec<&'static str> {
-    let mut names = vec![match std::env::consts::EXE_SUFFIX {
-        "" => "omp-host",
-        _ => "omp-host.exe",
-    }];
-    if let Some(name) = target_file_name() {
-        names.push(name);
-    }
-    names
+/// What a reader is told when no bundle exists.
+fn missing_host_message() -> String {
+    format!("The engine host bundle is missing. {}", remedy())
 }
 
-/// Name of the installed artifact for this build's target, or `None` on a platform the product
-/// does not ship.
-fn target_file_name() -> Option<&'static str> {
-    Some(match target_triple()? {
-        "x86_64-pc-windows-msvc" => "omp-host-x86_64-pc-windows-msvc.exe",
-        "aarch64-pc-windows-msvc" => "omp-host-aarch64-pc-windows-msvc.exe",
-        "x86_64-pc-windows-gnu" => "omp-host-x86_64-pc-windows-gnu.exe",
-        "x86_64-apple-darwin" => "omp-host-x86_64-apple-darwin",
-        "aarch64-apple-darwin" => "omp-host-aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu" => "omp-host-x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu" => "omp-host-aarch64-unknown-linux-gnu",
-        "x86_64-unknown-linux-musl" => "omp-host-x86_64-unknown-linux-musl",
-        "aarch64-unknown-linux-musl" => "omp-host-aarch64-unknown-linux-musl",
-        _ => return None,
-    })
+/// What a reader is told when the bundle speaks another protocol.
+fn protocol_mismatch_message(built_for: u32) -> String {
+    format!(
+        "The engine host bundle was built for protocol {built_for}, this build speaks protocol {PROTOCOL_VERSION}. {}",
+        remedy()
+    )
 }
 
-/// The manifest key of the running build. Resolved from the compile target, so a cross build
-/// looks for the artifact it actually ships, and `None` on a platform the product does not cover.
-fn target_triple() -> Option<&'static str> {
-    if cfg!(target_os = "windows") {
-        if cfg!(target_env = "msvc") {
-            return match (cfg!(target_arch = "x86_64"), cfg!(target_arch = "aarch64")) {
-                (true, _) => Some("x86_64-pc-windows-msvc"),
-                (_, true) => Some("aarch64-pc-windows-msvc"),
-                _ => None,
-            };
-        }
-        if cfg!(target_env = "gnu") && cfg!(target_arch = "x86_64") {
-            return Some("x86_64-pc-windows-gnu");
-        }
-        return None;
+/// The one remedy that depends on what the reader can do: a packaged build reinstalls the release,
+/// a development build rebuilds the artifact. One home for the branch.
+fn remedy() -> &'static str {
+    if cfg!(debug_assertions) {
+        "Rebuild it with `pnpm host:install` and restart the application."
+    } else {
+        "Reinstall the latest release."
     }
-    if cfg!(target_os = "macos") {
-        return match (cfg!(target_arch = "x86_64"), cfg!(target_arch = "aarch64")) {
-            (true, _) => Some("x86_64-apple-darwin"),
-            (_, true) => Some("aarch64-apple-darwin"),
-            _ => None,
-        };
-    }
-    if cfg!(target_os = "linux") {
-        return match (
-            cfg!(target_env = "musl"),
-            cfg!(target_arch = "x86_64"),
-            cfg!(target_arch = "aarch64"),
-        ) {
-            (true, true, _) => Some("x86_64-unknown-linux-musl"),
-            (true, _, true) => Some("aarch64-unknown-linux-musl"),
-            (_, true, _) => Some("x86_64-unknown-linux-gnu"),
-            (_, _, true) => Some("aarch64-unknown-linux-gnu"),
-            _ => None,
-        };
-    }
-    None
 }
 
-/// Reads the manifest beside `path` and checks the file against it.
-///
-/// Every call reads the manifest and hashes the file, with no memoized verdict behind it: a check
-/// that can be skipped is not a check, and the two things a weaker key would have to lean on - the
-/// file's size and its modification time - are both attacker-controlled. A settings read and a
-/// later spawn therefore each pay one hash of the artifact; that is the price of the guarantee that
-/// nothing is ever started, and nothing is ever reported as verified, without being hashed first.
-///
-/// Nothing here reports a filesystem path: the message travels to the UI, and the remedy - rebuild
-/// and reinstall the host artifact - is the same wherever it was found.
-fn verify(path: &Path) -> IpcResult<HostArtifact> {
-    let metadata = fs::metadata(path).map_err(|_| {
-        IpcError::new(
-            ENGINE_NOT_FOUND,
-            "The engine host program could not be read.",
-        )
-    })?;
-    if !metadata.is_file() {
-        return Err(IpcError::new(
-            ENGINE_NOT_FOUND,
-            "The engine host program is not a file.",
-        ));
-    }
-    if metadata.len() > MAX_ARTIFACT_BYTES {
-        return Err(mismatch(
-            "The engine host program is larger than any artifact this build ships. Reinstall it.",
-        ));
-    }
-    let manifest = read_manifest(path)?;
-    if manifest.bytes != metadata.len() {
-        return Err(mismatch(
-            "The engine host program does not match the checksum recorded for it. Reinstall it.",
-        ));
-    }
-    let digest = digest(path).ok_or_else(|| {
-        IpcError::new(
-            ENGINE_NOT_FOUND,
-            "The engine host program could not be read.",
-        )
-    })?;
-    if !manifest.sha256.eq_ignore_ascii_case(&digest) {
-        return Err(mismatch(
-            "The engine host program does not match the checksum recorded for it. Reinstall it.",
-        ));
-    }
-    // After the digest, because a file that is not the one its manifest describes has no version
-    // worth reading, and before the spawn, because an artifact speaking another vocabulary accepts
-    // the handshake and then absorbs the commands it does not know - the state this check exists to
-    // report instead of leaving the user with pages that never fill in.
-    if manifest.protocol != PROTOCOL_VERSION {
-        return Err(IpcError::from_message(
-            ENGINE_PROTOCOL,
-            format!(
-                "The engine host program was built for protocol {}, this build speaks protocol {}. Rebuild it with `bun run host/build.ts --install` and restart the application.",
-                manifest.protocol, PROTOCOL_VERSION
-            ),
-        ));
-    }
-    Ok(HostArtifact {
-        program: path.to_path_buf(),
-        args: Vec::new(),
-        path: path.to_path_buf(),
-        sdk_version: manifest.sdk_version,
-    })
+/// The bundle directory as an absolute path. Split out so the relative-path rule is testable without
+/// changing the process cwd.
+fn absolute_bundle(directory: &Path) -> PathBuf {
+    std::path::absolute(directory).unwrap_or_else(|_| directory.to_path_buf())
 }
 
 /// Reads the bundle's manifest and checks every file it lists.
 ///
-/// The manifest itself is not hashed: like `omp-host.json`, it is the document that carries the
-/// digests, and it ships inside the same directory the installer wrote. What it *does* have to
-/// survive is arithmetic - a name that leaves the directory is refused before it is read, and
-/// every file it lists is hashed at its recorded size.
+/// The manifest itself is not hashed: it is the document that carries the digests and it ships
+/// inside the same directory the installer wrote. What it *does* have to survive is arithmetic - a
+/// name that leaves the directory is refused before it is read, and every file it lists is hashed
+/// at its recorded size.
 fn verify_bundle(directory: &Path) -> IpcResult<HostArtifact> {
+    // Resolve a relative override against the process's own cwd before anything is read or
+    // spawned: the child runs with `<data_root>/host` as its cwd, so a relative entry would name a
+    // file nobody hashed (or none at all).
+    let directory = absolute_bundle(directory);
+    let directory = directory.as_path();
     let manifest_path = directory.join(BUNDLE_MANIFEST);
     let text = fs::read_to_string(&manifest_path).map_err(|_| {
         mismatch("The engine host bundle manifest is missing, so the program cannot be verified. Reinstall it.")
@@ -400,10 +244,7 @@ fn verify_bundle(directory: &Path) -> IpcResult<HostArtifact> {
     if manifest.protocol != PROTOCOL_VERSION {
         return Err(IpcError::from_message(
             ENGINE_PROTOCOL,
-            format!(
-                "The engine host program was built for protocol {}, this build speaks protocol {}. Rebuild it with `bun run host/build.ts --bundle` and restart the application.",
-                manifest.protocol, PROTOCOL_VERSION
-            ),
+            protocol_mismatch_message(manifest.protocol),
         ));
     }
     // The invocation is rebuilt from the manifest rather than trusted as a shell string: the last
@@ -499,19 +340,6 @@ fn verify_bundle(directory: &Path) -> IpcResult<HostArtifact> {
     })
 }
 
-/// Reads `omp-host.json` from the binary's own directory.
-fn read_manifest(path: &Path) -> IpcResult<Manifest> {
-    let manifest_path = path.with_file_name(MANIFEST_FILE);
-    let text = fs::read_to_string(&manifest_path).map_err(|_| {
-        mismatch(
-            "The engine host manifest is missing, so the program cannot be verified. Reinstall it.",
-        )
-    })?;
-    serde_json::from_str::<Manifest>(&text).map_err(|_| {
-        mismatch("The engine host manifest is unreadable, so the program cannot be verified. Reinstall it.")
-    })
-}
-
 fn mismatch(message: &'static str) -> IpcError {
     IpcError::new(ENGINE_CHECKSUM_MISMATCH, message)
 }
@@ -541,10 +369,6 @@ fn digest(path: &Path) -> Option<String> {
     }
     Some(hex)
 }
-
-#[cfg(test)]
-#[cfg(test)]
-mod tests;
 
 #[cfg(test)]
 mod bundle_tests;

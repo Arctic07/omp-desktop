@@ -26,7 +26,7 @@ One fact, one home; everywhere else links here or there.
 
 Everything runnable here comes from a build artifact, so a source change without a rebuild is invisible. Rebuild after `host/src/**` (`pnpm host:install`), `src/src/**` (`pnpm --filter src build`), or `src-tauri/**` (`pnpm tauri:build --no-bundle`). The procedure, the instances you must close first, and the failure handling are in [`rules.md#artifact-rebuild`](rules.md#artifact-rebuild); do not ask before rebuilding.
 
-- **Four artifact locations agree** on `sha256` and `bytes`: `host/dist/`, `src-tauri/binaries/`, `src-tauri/target/release/`, and `src-tauri/target/debug/` — compare each `omp-host.json` and confirm its `protocol` field. A host-only rebuild does not refresh `target/`; copy `omp-host.exe` and `omp-host.json` into both profiles by hand.
+- **One host artifact**: `pnpm host:install` writes `host/dist/bundle/` and copies it, hash-verified, to `src-tauri/binaries/bundle/`; the installer ships it; development runs use the repository copy, so `target/` needs none. A release build refuses a mismatched bundle (`src-tauri/build.rs`).
 - **Verify the embedded frontend in the same build**: `grep -aoE "assets/main-[A-Za-z0-9_-]+\.js" src-tauri/target/release/omp_desktop.exe | sort -u` must equal `grep -oE "assets/main-[A-Za-z0-9_-]+\.js" src/dist/index.html`. Cargo skips the build script when the crate's sources did not change, so the exe keeps an older bundle while `src/dist` moves (measured 2026-10-22: `src/dist/index.html` named `main-DLm7nEue.js`, the exe still carried `main-BSgiT5uC.js`). On a mismatch, `touch src-tauri/build.rs` and rebuild. Compare only within one `tauri build`: building each layer once already yields two different hashes, so do not run `pnpm --filter src build` afterwards.
 - **Never bare `cargo build --release`**: only the Tauri CLI turns on `custom-protocol`, which decides `dev`, and bare cargo writes a binary that still points at `localhost:1421`.
 - State in the delivery note which layers were rebuilt and which were not.
@@ -39,7 +39,7 @@ Everything runnable here comes from a build artifact, so a source change without
 
 Three processes share the name and differ by `ExecutablePath`: dev (`target/debug`), a repository release build (`target/release`), and the installed copy (`%LOCALAPPDATA%\Omp Desktop\`). They are different applications; closing or rebuilding one never touches another.
 
-- **Close only the instance occupying the profile being rebuilt**, and only after checking who started it. An instance that is an ancestor of this session (`bash → omp-host.exe → omp_desktop.exe`) is never closed by an agent — hand the close, rebuild, and restart to the user. Never close by process name: `Stop-Process -Force` by name kills the installed copy and the session's own host ([postmortem 0001](postmortems/0001-rebuild-kill-by-process-name.md)). The profile-scoped command is in [`rules.md#artifact-rebuild`](rules.md#artifact-rebuild).
+- **Close only the instance occupying the profile being rebuilt**, and only after checking who started it. An instance that is an ancestor of this session (`bash → bun.exe (the host) → omp_desktop.exe`) is never closed by an agent — hand the close, rebuild, and restart to the user. Never close by process name: `Stop-Process -Force` by name kills the installed copy and the session's own host ([postmortem 0001](postmortems/0001-rebuild-kill-by-process-name.md)). The profile-scoped command is in [`rules.md#artifact-rebuild`](rules.md#artifact-rebuild).
 - **An installed copy holds no repository file** and is never closed for a repository rebuild; it may be the user's only window.
 - **Dev has its own identity**: only `pnpm tauri:dev`, which passes `--config src-tauri/tauri.dev.conf.json` (`identifier` `com.omp.desktop.dev`, data root `%LOCALAPPDATA%\com.omp.desktop.dev`). A bare `pnpm tauri dev` takes the installed identity, is folded by its single-instance lock, and pollutes its data root ([postmortem 0002](postmortems/0002-bare-tauri-dev-used-the-installed-identity.md)). In an app-hosted session the dev instance is this session's ancestor, so `target/debug` rebuilds go to the user.
 
@@ -105,7 +105,7 @@ A standing rule names its check; a rule without one decays into a suggestion.
 | `pnpm --filter src typecheck`, `pnpm --filter src lint` (`tsc -b`, oxlint) | Types, unused symbols, banned syntax |
 | `pnpm --filter src test` (`node --test`) | Frontend pure rules and store behavior |
 | `pnpm --filter src build` | `src/dist/` builds |
-| `pnpm host:install` (self-verified `sha256`) | Host artifact parity |
+| `pnpm host:install` (self-verified `sha256`) | Host bundle parity; a release build gates protocol and SDK |
 | `cd host && bun test`, `bun run scripts/{seam-check,smoke,isolation,artifacts}.ts` | Frames, protocol, scenarios, isolation, artifact provenance |
 | `cargo fmt --check`, `cargo check`, `cargo test --lib` | Rust format and behavior (through the wrapper above) |
 | `host/src/write-guard.ts`, with tests | Cross-session overwrite |

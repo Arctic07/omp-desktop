@@ -221,7 +221,7 @@ test('a real worker handshakes, executes a command, relays a refusal and unloads
   try {
     writeFixture(root)
     proc = Bun.spawn({
-      // The equivalent of `omp-host.exe --plugin-worker …`: the same entry point, run from source.
+      // The equivalent of the bundle's `--plugin-worker` launch: the same entry point, run from source.
       cmd: [process.execPath, MAIN_PATH, '--plugin-worker', '--root', root, '--install', 'e2e-plugin@local', '--id', 'e2e-plugin', '--scope', 'user'],
       cwd: base,
       stdin: 'pipe',

@@ -1,5 +1,5 @@
 /**
- * `omp-host.exe --plugin-worker`: the worker process, from argv to exit.
+ * The host bundle's `--plugin-worker`: the worker process, from argv to exit.
  *
  * The order is the protocol's (plan §6.2): reset the environment and `cwd` before any plugin code
  * exists, resolve and evaluate the entry, run `onLoad(pi)` - which may already call back through

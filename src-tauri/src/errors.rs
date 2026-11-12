@@ -11,7 +11,7 @@ pub(crate) const ENGINE_NOT_FOUND: &str = "ENGINE_NOT_FOUND";
 pub(crate) const ENGINE_SPAWN_FAILED: &str = "ENGINE_SPAWN_FAILED";
 pub(crate) const ENGINE_PROTOCOL: &str = "ENGINE_PROTOCOL";
 pub(crate) const ENGINE_REQUEST_FAILED: &str = "ENGINE_REQUEST_FAILED";
-/// The host binary does not match the artifact recorded next to it (`omp-host.json`), so it is
+/// The host bundle does not match the digests recorded in its own `manifest.json`, so it is
 /// refused instead of being executed.
 pub(crate) const ENGINE_CHECKSUM_MISMATCH: &str = "ENGINE_CHECKSUM_MISMATCH";
 /// The host process answered nothing: it exited, was killed, or the pipe to it is gone.

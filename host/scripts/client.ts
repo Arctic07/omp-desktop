@@ -1,8 +1,8 @@
 /**
  * The host client the smoke driver runs scenarios against.
  *
- * One instance launches one real host process (source tree, compiled artifact or installed
- * binary), records every frame in both directions with its arrival time, and answers the two
+ * One instance launches one real host process (source tree, the built bundle, or the installed
+ * bundle), records every frame in both directions with its arrival time, and answers the two
  * questions a scenario asks: "send this command" and "wait until this frame arrives". Scenario
  * logic and evidence layout live in `smoke.ts`.
  */
@@ -11,6 +11,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { ChunkReassembler, LineScanner } from '../src/protocol/frames.ts'
+import { BUNDLE_DIRNAME, type BundleManifest } from './packages.ts'
 
 export const repoRoot = path.resolve(import.meta.dir, '..', '..')
 export const evidenceDir = path.join(repoRoot, 'host', 'evidence')
@@ -23,7 +24,7 @@ export const evidenceDir = path.join(repoRoot, 'host', 'evidence')
  */
 export const dataRoot = path.resolve(process.env.OMP_DESKTOP_SMOKE_DATA_ROOT ?? path.join(repoRoot, 'host', '.dev-data', 'data'))
 export const workspace = path.join(dataRoot, 'workspace')
-export const installedBinary = path.join(repoRoot, 'src-tauri', 'binaries', 'omp-host-x86_64-pc-windows-msvc.exe')
+export const installedBundle = path.join(repoRoot, 'src-tauri', 'binaries', BUNDLE_DIRNAME)
 
 /** How the host under test is launched. */
 export type HostMode = 'src' | 'dist' | 'installed'
@@ -78,8 +79,19 @@ export class HostProcess {
   static #command(mode: HostMode): string[] {
     const args = ['--data-root', dataRoot]
     if (mode === 'src') return [process.execPath, path.join(repoRoot, 'host', 'src', 'main.ts'), ...args]
-    if (mode === 'dist') return [path.join(repoRoot, 'host', 'dist', 'omp-host.exe'), ...args]
-    return [installedBinary, ...args]
+    // `dist` and `installed` are the same bundle shape, one before and one after the installer
+    // copies it: its manifest names the runtime and the invocation, and the launcher rebuilds the
+    // command from exactly those two facts (`host_bin::verify_bundle`). A missing bundle is an
+    // error, not a fallback to another layout.
+    const directory = mode === 'dist' ? path.join(repoRoot, 'host', 'dist', BUNDLE_DIRNAME) : installedBundle
+    const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8')) as BundleManifest
+    const runtime = manifest.files.find(file => file.role === 'runtime')
+    if (runtime === undefined) throw new Error(`${directory} names no runtime`)
+    // The manifest records the invocation the launcher reproduces: flags, then the entry. The entry
+    // is resolved against the bundle, not the working directory - the same rule the launcher applies
+    // (`host_bin::verify_bundle`), because a relative name would start nothing.
+    const invocation = [...manifest.argv.slice(0, -1), path.join(directory, manifest.entry)]
+    return [path.join(directory, runtime.file), ...invocation, ...args]
   }
 
   /** The launcher clears the environment and passes only what the host is allowed to read. */

@@ -59,7 +59,7 @@ pub(crate) struct RuntimeProcess {
 pub(crate) struct RuntimeStatus {
     #[serde(rename = "enginePath")]
     pub(crate) engine_path: String,
-    /// SDK version the host was built against (from `omp-host.json`).
+    /// SDK version the host was built against (from the bundle's `manifest.json`).
     #[serde(rename = "engineVersion")]
     pub(crate) engine_version: String,
     #[serde(rename = "protocolVersion")]
@@ -70,10 +70,10 @@ pub(crate) struct RuntimeStatus {
     pub(crate) agent_dir: String,
     #[serde(rename = "credentialBackend")]
     pub(crate) credential_backend: String,
-    /// True only when the located host binary matched the digest recorded in the manifest shipped
-    /// next to it (`omp-host.json`). Every candidate is verified the same way, including a
-    /// development override: an artifact without a manifest of its own is refused rather than
-    /// trusted, so `true` here always means the file that was just hashed.
+    /// True only when the located host bundle matched every digest recorded in its own
+    /// `manifest.json`. Every candidate is verified the same way, including a development override:
+    /// a bundle without a manifest of its own is refused rather than trusted, so `true` here always
+    /// means the files that were just hashed.
     #[serde(rename = "engineVerified")]
     pub(crate) engine_verified: bool,
     /// Stable code when the located host cannot be used (`ENGINE_NOT_FOUND`,

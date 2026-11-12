@@ -8,7 +8,7 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "build": "bun run build.ts",
-    "install:bin": "bun run build.ts --install",
+    "install:bundle": "bun run build.ts --install",
     "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "seam:check": "bun run scripts/seam-check.ts",
