@@ -294,6 +294,8 @@ async function hostSmoke(): Promise<void> {
   // A WebSocket the host can really open: the frames below are its client's own path.
   const echo = Bun.serve({
     port: 0,
+    // Loopback only, like the test's: a smoke server on every interface makes Windows ask.
+    hostname: '127.0.0.1',
     fetch(request, listener) {
       return listener.upgrade(request) ? undefined : new Response('upgrade required', { status: 400 })
     },

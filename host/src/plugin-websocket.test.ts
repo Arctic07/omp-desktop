@@ -14,6 +14,8 @@ import { PluginSocketTable } from './plugin-websocket.ts'
 
 const server = Bun.serve({
   port: 0,
+  // Loopback only: a test server on every interface is a firewall prompt waiting for a stranger.
+  hostname: '127.0.0.1',
   fetch(request, listener) {
     return listener.upgrade(request) ? undefined : new Response('upgrade required', { status: 400 })
   },
