@@ -22,6 +22,7 @@ function row(id: string, scope: string, consent: boolean, enabled = false): Plug
     scope: scope as PluginRow['scope'],
     enabled,
     builtin: false,
+    toggleable: true,
     shadowedBy: null,
     installId: `${id}@market`,
     source: {

@@ -19,6 +19,7 @@ fn view(desktop: Option<EngineDesktopBlock>) -> PluginRowView {
         scope: "user".to_owned(),
         enabled: false,
         builtin: false,
+        toggleable: false,
         shadowed_by: None,
         install_id: None,
         source: EnginePluginSource::default(),

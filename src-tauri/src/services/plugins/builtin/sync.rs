@@ -23,6 +23,7 @@ use crate::models::plugins::identity;
 use crate::models::plugins::{EnginePluginRow, EnginePluginsView};
 use crate::services::log;
 use crate::services::paths::is_within;
+use crate::services::plugins::audit;
 use crate::services::plugins::consent_flow;
 use crate::state::AppState;
 
@@ -590,6 +591,14 @@ impl SyncPass<'_> {
 /// because that chain is what makes an install answerable at all - and then the enabled state is
 /// read back rather than assumed: a first seed wants a plugin the user can use, so a row the engine
 /// left switched off is switched on explicitly.
+///
+/// The confirmation is recorded before that switch, because the same chain quarantines a row whose
+/// code needs one: without the record, a definition that ships an extension module would be disabled
+/// by its own install, and - for a definition the user may switch off - the enable gate would refuse
+/// to switch it back on, which is a control that only works in one direction. The record is the
+/// application's own answer about a package it ships (`rules.md#plugin-system`: a built-in is granted
+/// by being enabled), so it is written here and never asked of the user. Its audit line is
+/// `plugin.permission.builtin`, never `plugin.permission.granted`: nobody was asked.
 async fn install_first(
     state: &AppState,
     cwd: Option<&str>,
@@ -608,6 +617,19 @@ async fn install_first(
         false,
     )
     .await?;
+    // The record is written for the installation this seed just installed, named by its own handle:
+    // the grant table is keyed by `(plugin id, scope)`, and a package that merely carries the same
+    // `package.json#name` from npm or another marketplace is a different installation that must not
+    // inherit this answer (`services::plugins::consent::is_granted`). Only a row that would run code
+    // needs the record at all; the scope key is the user scope's own, because that installation is
+    // the one every workspace shares.
+    if needs_seed_grant(&installed.plugins, def) {
+        state
+            .store
+            .set_plugin_grant(def.name, BUILTIN_SCOPE, "", true)
+            .await?;
+        audit::permission_builtin(def.name, Some(BUILTIN_SCOPE));
+    }
     if enabled_at(&installed.plugins, def) {
         log::info(&format!(
             "the built-in plugin {} was installed at version {version}",
@@ -732,6 +754,20 @@ async fn update_if_newer(
             Ok(Some(upgraded))
         }
     }
+}
+
+/// Whether the seed's own confirmation is due for this definition: the installation it just made
+/// needs one to run its code, and the row it is keyed by is that installation's handle rather than a
+/// same-named package from somewhere else.
+///
+/// Pure, because the fact it decides is the one the grant table is written from, and a wrong answer
+/// is a confirmation recorded for an installation that is not this build's.
+fn needs_seed_grant(rows: &[EnginePluginRow], def: &BuiltinDef) -> bool {
+    rows.iter().any(|row| {
+        row.install_id.as_deref() == Some(def.install_id)
+            && identity::plugin_id(row) == def.name
+            && row.consent.required
+    })
 }
 
 /// Whether the list holds one definition's installation in the enabled state.

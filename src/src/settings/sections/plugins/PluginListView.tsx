@@ -847,19 +847,19 @@ function PluginRowItem({
           </span>
         </button>
 
-        <span title={row.builtin ? copy.builtinHint : undefined}>
+        <span title={row.toggleable ? undefined : copy.builtinSwitchHint}>
           <Switch
             checked={row.enabled}
-            // A built-in is the surface the build promises; its switch is not the reader's to turn
+            // A built-in whose definition did not opt in keeps its switch closed
             // (`PLUGIN_BUILTIN_PROTECTED` answers a write that arrives anyway). A row the host
             // reported without an engine handle has no installation any write could name. A write
             // in flight is refused by `runWrite`; dimming every switch for it made the whole list
             // flicker and showed a not-allowed cursor, so the control keeps its normal appearance.
-            disabled={row.builtin || !addressable}
+            disabled={!row.toggleable || !addressable}
             onCheckedChange={onToggle}
             ariaLabel={
-              row.builtin
-                ? copy.builtinHint
+              !row.toggleable
+                ? copy.builtinSwitchHint
                 : !addressable
                   ? copy.noInstallHandleHint
                   : row.enabled

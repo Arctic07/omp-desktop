@@ -1,0 +1,27 @@
+{
+  "name": "omp.auto-continue",
+  "version": "0.1.0",
+  "description": "Resends 继续 when a remote provider interruption ends a turn before the work is finished.",
+  "omp": {
+    "name": "Auto continue",
+    "description": "When a provider stream fails abnormally, sends 继续 so the interrupted turn resumes without touching the composer.",
+    "extensions": ["extensions/auto-continue.ts"],
+    "desktop": {
+      "schemaVersion": 1,
+      "engines": { "ompDesktop": ">=0.3.0" },
+      "permissions": ["agent.extension"],
+      "i18n": {
+        "en": {
+          "name": "Auto continue",
+          "description": "When a provider stream fails abnormally, sends 继续 so the interrupted turn resumes without touching the composer.",
+          "safetyNotes": "Runs an engine extension that sends a 继续 prompt after a remote provider interruption. It reads no files, starts no process, and sends no network requests."
+        },
+        "zh": {
+          "name": "远端中断自动继续",
+          "description": "远端模型流异常中断时，自动发送一条「继续」，让这一轮接着做完，不碰输入框里的内容。",
+          "safetyNotes": "运行一个引擎扩展，在远端异常中断后发送「继续」。它不读文件、不启动进程、不发网络请求。"
+        }
+      }
+    }
+  }
+}

@@ -156,6 +156,7 @@ mod tests {
         name: "omp.example",
         install_id: "omp.example@omp-desktop-builtin",
         package_dir: "omp.example",
+        toggleable: false,
     };
 
     /// A bundle directory holding one definition's manifest, keyed by tag so parallel tests never

@@ -119,6 +119,7 @@ function row(themes: EnginePluginTheme[]): PluginRow {
     scope: 'user',
     enabled: true,
     builtin: false,
+    toggleable: true,
     shadowedBy: null,
     source: { kind: 'npm', label: 'demo.theme', gitCommitSha: null, marketplace: null, installId: null, installed: true },
     sources: [],

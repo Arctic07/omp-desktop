@@ -111,14 +111,15 @@ pub(crate) struct EnginePluginRow {
     /// Whether this row is one of the built-in plugin installations *and* the marketplace it came
     /// from was verified to be the bundle this application shipped with.
     ///
-    /// It is this side's own fact, not the host's, so it never crosses the pipe: the host has no way
-    /// to know which marketplace a row's id was written from (its `source` carries a kind and a
-    /// label, not a path), and an id is a string a package can choose. Only
-    /// `services::plugins::builtin` sets it, and only after it has read the reserved marketplace's
-    /// source itself; everything that trusts a built-in plugin - the bridge's first-party answer,
-    /// the DTO's `builtin` flag - reads this mark and nothing else.
+    /// This side's own fact, never the host's: `source` carries a kind and a label, not a path, and an
+    /// id is a string a package can choose. Only `services::plugins::builtin` sets it, after reading
+    /// the reserved marketplace's source; the bridge's first-party answer and the DTO's `builtin` flag
+    /// read this mark and nothing else.
     #[serde(skip)]
     pub(crate) builtin: bool,
+    /// Whether the user's switch may turn this row off, as `builtin::apply_trust` decided it.
+    #[serde(skip)]
+    pub(crate) toggleable: bool,
 }
 
 /// Where a plugin came from.
@@ -601,6 +602,8 @@ pub(crate) struct PluginRowView {
     /// reserved id was *not* verified to have come from the bundled marketplace - the identity a row
     /// spells is not evidence of where it came from.
     pub(crate) builtin: bool,
+    /// Whether the page offers this row's switch, as `apply_trust` decided it. Removal stays closed.
+    pub(crate) toggleable: bool,
     pub(crate) shadowed_by: Option<String>,
     /// The handle the plugin's write commands address (`installId`). The page never keys by it.
     pub(crate) install_id: Option<String>,
@@ -637,6 +640,7 @@ impl From<EnginePluginRow> for PluginRowView {
             scope: row.scope.clone(),
             enabled: row.enabled,
             builtin: row.builtin,
+            toggleable: row.toggleable,
             shadowed_by: row.shadowed_by,
             install_id: row.install_id,
             source: row.source,

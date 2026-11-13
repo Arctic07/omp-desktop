@@ -14,6 +14,7 @@ function row(overrides: Partial<PluginRow> = {}): PluginRow {
     scope: 'user',
     enabled: true,
     builtin: false,
+    toggleable: true,
     shadowedBy: null,
     source: {
       kind: 'marketplace',
@@ -134,6 +135,7 @@ test('availability follows the served contributions, not the build', () => {
     id: 'omp.terminal',
     installId: 'omp.terminal@omp-desktop-builtin',
     builtin: true,
+    toggleable: false,
     desktop: {
       ...row().desktop!,
       permissions: ['ui.view'],
