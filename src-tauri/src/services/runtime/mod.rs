@@ -142,7 +142,11 @@ use crate::services::log;
 /// prefers `ui.formDialog`, so the host answers with a `form` request and this process replies with
 /// per-control `answers`. An older host absorbs the `form` frame as an unknown method and leaves the
 /// tool waiting for an answer nothing was going to send - the same silence as 13/16/17.
-pub(crate) const PROTOCOL_VERSION: u32 = 39;
+/// 40 adds the plugin-management parity commands: `plugins_install_preview`, `plugins_features_set`,
+/// `plugins_doctor`, `plugins_auto_update`, `extensions_list` and `extensions_set`, plus the `local`
+/// and `force` arguments on existing ones. Six new commands, so an older host absorbs each frame as
+/// unknown while the plugin page waits on an answer - the same class as 35.
+pub(crate) const PROTOCOL_VERSION: u32 = 40;
 /// Connection-class commands (session state and friends) give up after this long.
 pub(crate) const CONNECT_TIMEOUT_MS: u64 = 15_000;
 /// Model catalogue reads re-hydrate provider credentials, which was measured at 3-10 s.

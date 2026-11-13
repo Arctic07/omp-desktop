@@ -26,7 +26,7 @@ import {
   cfgCompactionIdleEnabled,
   cfgCompactionMethodOrder,
 } from '@oh-my-pi/pi-coding-agent/session/context-settings'
-import { cfgRecap, cfgRecapEnabled } from '@oh-my-pi/pi-coding-agent/modes/settings'
+import { cfgRecap, cfgRecapEnabled, cfgMarketplaceAutoUpdate } from '@oh-my-pi/pi-coding-agent/modes/settings'
 import { cfgToolsApprovalMode } from '@oh-my-pi/pi-coding-agent/tools/settings'
 
 import type { BootServices } from './boot.ts'
@@ -164,6 +164,30 @@ export async function setCompactionOptions(
   // settings, so repeating `compaction_status` must show what the answer showed.
   await settings.flush()
   return readCompaction(services)
+}
+
+/** The engine's marketplace auto-update mode (`marketplace.autoUpdate`). */
+export function readPluginAutoUpdate(services: BootServices): Record<string, unknown> {
+  return { value: cfgMarketplaceAutoUpdate.get(services.settings) }
+}
+
+/**
+ * `plugins_auto_update`: read, or write, the engine's startup marketplace policy.
+ *
+ * The setting is the engine's own (`marketplace.autoUpdate`, `off` | `notify` | `auto`); `omp config
+ * set marketplace.autoUpdate` writes the same key. A write is flushed before the answer so the next
+ * process reads what this one reported.
+ */
+export async function writePluginAutoUpdate(
+  services: BootServices,
+  frame: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (frame.value !== undefined) {
+    const mode = enumField(frame.value, ['off', 'notify', 'auto'], 'value')
+    cfgMarketplaceAutoUpdate.set(services.settings, mode)
+    await services.settings.flush()
+  }
+  return { value: cfgMarketplaceAutoUpdate.get(services.settings) }
 }
 
 /**

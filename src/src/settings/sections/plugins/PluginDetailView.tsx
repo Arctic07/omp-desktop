@@ -5,16 +5,18 @@ import { ArrowLeft, ChevronDown, RefreshCw, ShieldOff, Trash2 } from 'lucide-rea
 import { toApiError, type ApiError } from '@/api/client'
 
 import type {
+  EnginePluginDoctorView,
   EnginePluginEngineInfo,
   EnginePluginSettings,
   PluginRow,
 } from '@/api/plugins-types'
-import { openPluginPanel } from '@/api/plugins'
+import { openPluginPanel, pluginDoctor } from '@/api/plugins'
 import { PluginPageFrame } from '@/components/plugins/plugin-page-frame'
 import { PluginPageIcon } from '@/components/plugins/plugin-page-icon'
 import { pluginPagesOf } from '@/state/plugin-pages'
 import { AnimatedBadge } from '@/components/motion/animated-badge'
 import { Button } from '@/components/motion/button'
+import { Switch } from '@/components/motion/switch'
 import { useCopy, type Language, type Localized } from '@/lib/i18n'
 import {
   SettingsBadge,
@@ -96,8 +98,8 @@ export function PluginDetailView({
   configStatus,
   configError,
   engineInfo,
-  uninstallOpen,
   workspaceId,
+  bothScopes,
   onBack,
 }: {
   entry: PluginEntry
@@ -109,10 +111,10 @@ export function PluginDetailView({
   configError: ApiError | null
   /** The engine the host is running, for the diagnostics block; null when the read was refused. */
   engineInfo: EnginePluginEngineInfo | null
-  /** Whether this installation's uninstall is already being confirmed above the view. */
-  uninstallOpen: boolean
   /** The workspace whose registry the row lives in; a process write is addressed through it. */
   workspaceId: number | null
+  /** True when the same plugin id is installed at both scopes in this workspace. */
+  bothScopes: boolean
   onBack: () => void
 }) {
   const row: PluginRow = entry.row
@@ -134,6 +136,23 @@ export function PluginDetailView({
   const [selectedSettingsKey, setSelectedSettingsKey] = useState<string | null>(null)
   const [panelBusyKey, setPanelBusyKey] = useState<string | null>(null)
   const [panelError, setPanelError] = useState<ApiError | null>(null)
+  const [doctorBusy, setDoctorBusy] = useState(false)
+  const [doctor, setDoctor] = useState<EnginePluginDoctorView | null>(null)
+  const [doctorError, setDoctorError] = useState<ApiError | null>(null)
+  /** Whether settings writes go to this workspace's plugin-overrides file instead of the user store. */
+  const [localSettings, setLocalSettings] = useState(false)
+
+  const runDoctor = async (fix: boolean): Promise<void> => {
+    setDoctorBusy(true)
+    setDoctorError(null)
+    try {
+      setDoctor(await pluginDoctor(workspaceId, fix))
+    } catch (error) {
+      setDoctorError(toApiError(error))
+    } finally {
+      setDoctorBusy(false)
+    }
+  }
   const selectedSettingsPage =
     surfaces.settings.find((page) => page.key === selectedSettingsKey) ?? surfaces.settings[0] ?? null
 
@@ -227,13 +246,25 @@ export function PluginDetailView({
               {pluginUpdateActionLabel(entry.update, copy)}
             </Button>
           )}
+          {entry.update === null && row.source.kind === 'npm' ? (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.upgrade(row)}>
+              <RefreshCw size={14} aria-hidden="true" />
+              {copy.npmUpgradeAction}
+            </Button>
+          ) : null}
+          {bothScopes ? (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.upgradeBoth(row)}>
+              <RefreshCw size={14} aria-hidden="true" />
+              {copy.upgradeBothAction}
+            </Button>
+          ) : null}
           <span title={row.builtin ? copy.builtinHint : undefined}>
             <Button
               size="sm"
               variant="secondary"
               // A built-in is not the reader's to remove; the command refuses it too
               // (`PLUGIN_BUILTIN_PROTECTED`). A row without an engine handle has nothing to remove.
-              disabled={busy || uninstallOpen || row.builtin || !addressable}
+              disabled={busy || row.builtin || !addressable}
               onClick={() => actions.requestUninstall(row)}
             >
               <Trash2 size={14} aria-hidden="true" />
@@ -338,6 +369,33 @@ export function PluginDetailView({
         </SettingsCard>
       </SettingsGroup>
 
+      {row.features.length === 0 ? null : (
+        <SettingsGroup title={copy.featuresTitle}>
+          <SettingsCard>
+            {row.features.map((feature) => (
+              <SettingsRow
+                key={feature.name}
+                title={feature.name}
+                description={feature.description ?? undefined}
+                control={
+                  <span className="flex items-center gap-2">
+                    {feature.default ? (
+                      <SettingsBadge>{copy.featureDefaultBadge}</SettingsBadge>
+                    ) : null}
+                    <Switch
+                      checked={feature.enabled}
+                      disabled={busy || !addressable}
+                      ariaLabel={copy.featureToggle(feature.name, feature.enabled)}
+                      onCheckedChange={(next) => actions.setFeature(row, feature.name, next)}
+                    />
+                  </span>
+                }
+              />
+            ))}
+          </SettingsCard>
+        </SettingsGroup>
+      )}
+
       <PluginProcessSection row={row} copy={copy} language={language} workspaceId={workspaceId} />
 
       {surfaces.panels.length === 0 ? null : (
@@ -407,6 +465,20 @@ export function PluginDetailView({
 
       <SettingsGroup title={copy.settingsTitle}>
         <SettingsCard>
+          {workspaceId === null ? null : (
+            <SettingsRow
+              title={copy.settingsLocalLabel}
+              description={copy.settingsLocalHint}
+              control={
+                <Switch
+                  checked={localSettings}
+                  disabled={busy}
+                  ariaLabel={copy.settingsLocalLabel}
+                  onCheckedChange={setLocalSettings}
+                />
+              }
+            />
+          )}
           <div className="px-5 py-[15px]">
             <PluginSettingsForm
               row={row}
@@ -414,8 +486,8 @@ export function PluginDetailView({
               loading={configStatus === 'loading'}
               copy={copy}
               settingLabels={pluginSettingLabels(row, language)}
-              onSet={(key, value) => actions.setSetting(row, key, value)}
-              onReset={(key) => actions.resetSetting(row, key)}
+              onSet={(key, value) => actions.setSetting(row, key, value, localSettings)}
+              onReset={(key) => actions.resetSetting(row, key, localSettings)}
             />
             {configError === null ? null : (
               <p
@@ -457,6 +529,59 @@ export function PluginDetailView({
           {engineInfo !== null && desktopNote === '' && diagnostics.length === 0 ? (
             <SettingsEmpty>{copy.diagnosticsNone}</SettingsEmpty>
           ) : null}
+        </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup title={copy.doctorTitle}>
+        <SettingsCard>
+          <SettingsRow
+            stack
+            title={copy.doctorHint}
+            description={doctorError === null ? undefined : copy.doctorFailed}
+            control={
+              <span className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={doctorBusy}
+                  onClick={() => void runDoctor(false)}
+                >
+                  {copy.doctorRun}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={doctorBusy}
+                  onClick={() => void runDoctor(true)}
+                >
+                  {copy.doctorFix}
+                </Button>
+                {doctorError === null ? null : <SettingsBadge>{doctorError.code}</SettingsBadge>}
+              </span>
+            }
+          />
+          {doctor === null
+            ? null
+            : doctor.checks.map((check) => (
+                <SettingsRow
+                  key={check.name}
+                  title={check.name}
+                  description={check.message}
+                  control={
+                    <span className="flex items-center gap-2">
+                      {check.fixed ? <SettingsBadge>{copy.doctorFixed}</SettingsBadge> : null}
+                      <AnimatedBadge
+                        status={check.status === 'ok' ? 'success' : check.status === 'error' ? 'warning' : 'neutral'}
+                        size="sm"
+                        showIcon={false}
+                        animated={false}
+                      >
+                        {check.status}
+                      </AnimatedBadge>
+                    </span>
+                  }
+                />
+              ))}
         </SettingsCard>
       </SettingsGroup>
 

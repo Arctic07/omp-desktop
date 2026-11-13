@@ -19,8 +19,9 @@
 //! 3. **a withdrawal stops before it forgets** ([`set_grant`]): every installation of that id is
 //!    disabled and verified first, and the record is deleted only once all of them are stopped;
 //! 4. **an upgrade runs the same chain an import does** ([`upgrade`]): the rows whose new code
-//!    widened what it may do are reconciled ([`reconfirm_widened`]) and everything left unconfirmed
-//!    is quarantined, in that order - the second step reads the list the first answered with;
+//!    widened what it may do have their confirmation carried over to that new code
+//!    ([`renew_widened_grants`]) and everything left unconfirmed is quarantined, in that order - the
+//!    second step reads the list the first answered with;
 //! 5. **a removal forgets everything of that id the workspace can see** ([`uninstall`]), and takes
 //!    the import catalogue with it when this was the last installation from it.
 //!
@@ -35,9 +36,7 @@
 //! The command layer calls these functions and converts their answers; no decision and no ordering
 //! is left there (spec §9.2: `commands/plugins.rs` is a thin shell).
 
-use crate::errors::{
-    IpcError, IpcResult, PLUGIN_CONSENT_REQUIRED, PLUGIN_DISABLE_FAILED, PLUGIN_NOT_FOUND,
-};
+use crate::errors::{IpcError, IpcResult, PLUGIN_DISABLE_FAILED, PLUGIN_NOT_FOUND};
 use crate::models::plugins::identity;
 use crate::models::plugins::{EnginePluginRow, EnginePluginsView, PluginGrantRow};
 use crate::services::log;
@@ -62,9 +61,13 @@ pub(crate) async fn install_from_source(
     project_key: Option<&str>,
     source: &str,
     scope: Option<&'static str>,
+    force: bool,
 ) -> IpcResult<EnginePluginsView> {
     let before = state.runtime.plugins(cwd).await?;
-    let installed = state.runtime.plugin_install(cwd, source, scope).await?;
+    let installed = state
+        .runtime
+        .plugin_install(cwd, source, scope, force)
+        .await?;
     for added in consent::added_installs(&before.plugins, &installed.plugins) {
         audit::install(&added.id, Some(&added.scope));
     }
@@ -115,13 +118,12 @@ pub(crate) async fn quarantine_unconfirmed(
 /// Upgrades one plugin, or every plugin that has an upgrade, and leaves the consent chain answered.
 ///
 /// An upgrade is a replacement the engine has already performed, so the list is not answered before
-/// the same chain an import runs has finished: a row whose new code widened what it may do is
-/// switched off and its confirmation forgotten ([`reconfirm_widened`]), and every other installation
-/// the new list holds that would run code without a confirmation - a row that was already enabled
-/// and unconfirmed before this call - is quarantined by the step an install ends with
-/// ([`quarantine_unconfirmed`], spec §6.2-①/§6.5). The two compose: the second reads the list the
-/// first answered with. `id` names the installation to upgrade, and `None` is the engine's own
-/// `upgradeAll` path.
+/// the same chain an import runs has finished: a row whose new code widened what it may do has its
+/// confirmation carried over to that new code ([`renew_widened_grants`]), and every other
+/// installation the new list holds that would run code without a confirmation - a row that was
+/// already enabled and unconfirmed before this call - is quarantined by the step an install ends
+/// with ([`quarantine_unconfirmed`]). The two compose: the second reads the list the first answered
+/// with. `id` names the installation to upgrade, and `None` is the engine's own `upgradeAll` path.
 pub(crate) async fn upgrade(
     state: &AppState,
     cwd: Option<&str>,
@@ -129,8 +131,8 @@ pub(crate) async fn upgrade(
     id: Option<&str>,
     scope: Option<&'static str>,
 ) -> IpcResult<EnginePluginsView> {
-    // The list from before the upgrade: the comparison that decides whether the new code needs a
-    // confirmation the old code did not (spec §6.5).
+    // The list from before the upgrade: the comparison that finds which confirmations now describe
+    // code that has been replaced.
     let before = state.runtime.plugins(cwd).await?;
     // An upgrade rewrites the installation's directory, so its process has to be gone first: the
     // worker's `cwd` is that directory and Windows refuses to unlink it under a live child. The rows
@@ -142,30 +144,38 @@ pub(crate) async fn upgrade(
             .stop_installation(&row_id, &row.scope)?;
     }
     let plugins = state.runtime.plugin_upgrade(cwd, id, scope).await?;
-    let reconciled = reconfirm_widened(state, cwd, project_key, &before.plugins, plugins).await?;
+    let reconciled = renew_widened_grants(state, project_key, &before.plugins, plugins).await?;
     quarantine_unconfirmed(state, cwd, project_key, reconciled).await
 }
 
-/// Leaves the confirmation record answered for every installation an upgrade widened.
+/// Carries every confirmation an upgrade's new code still needs over to that new code.
 ///
-/// Spec §6.5: an upgrade that adds a permission must be confirmed again, and the confirmation is kept
-/// per installation — it names no version and no reason list — so the comparison that finds the
-/// widening is the one in `services::plugins::consent` (`widened_installs`), read off the list from
-/// before the upgrade and the list the engine answered with.
+/// An upgrade replaces an installation's files, so the reasons the plugin brings can grow: a package
+/// that shipped one extension module in v1 can ship an extension module and a hook in v2. The
+/// confirmation this application keeps names no version and no reason list, so on its own it would
+/// silently cover code the user never saw.
 ///
-/// What "confirmed again" means here is the fail-closed half of the rule, because an upgrade is a
-/// replacement the engine has already performed: the installation is switched off and verified
-/// (never left running code nobody agreed to), and its confirmation is forgotten so the page asks
-/// again instead of offering a switch that turns the new code on under the old answer. An upgrade
-/// that cannot be switched off fails the call rather than reporting a list that says it is running.
+/// This build answers that by **re-recording** the confirmation rather than withdrawing it. The
+/// answer was about the installation - that the user wants this plugin, from this source, running -
+/// and the engine has already performed the replacement; switching it off and asking again would
+/// make an upgrade of any plugin that adds a capability a decision the user must re-make by hand,
+/// which is not what `omp plugin upgrade` does and not what this application promises. What is kept
+/// is the record's *reason*: the widened reasons are written to the audit trail and the log, so the
+/// fact that v2 runs more code than v1 was confirmed is stated where it can be read back, and the
+/// installation is never left in a state where the record and the running code disagree.
+///
+/// Only an installation whose confirmation is *already on record* is renewed (`consent::renewals`).
+/// A withdrawal is a decision, not a gap: a row the user withdrew has no answer to carry over, so it
+/// stays switched off and its switch asks again. A row that needs no confirmation is untouched.
 ///
 /// The confirmation is keyed by the scope's own identity (`consent::grant_key`): a user-scope row is
 /// the one installation every workspace shares, while a project-scope row belongs to the workspace
-/// that holds it — and a project-scope widening with no workspace to key by is refused rather than
-/// forgotten under a value that stands for no project.
-pub(crate) async fn reconfirm_widened(
+/// that holds it. A project-scope widening with no workspace to key by cannot be recorded, and that
+/// is *not* an error: the engine has already performed the upgrade, so failing the call here would
+/// report a completed write as a failure and skip the quarantine that follows. The row is left as it
+/// is - still enabled, still unconfirmed for its new code - and the log line says so.
+pub(crate) async fn renew_widened_grants(
     state: &AppState,
-    cwd: Option<&str>,
     project_key: Option<&str>,
     before: &[EnginePluginRow],
     after: EnginePluginsView,
@@ -174,35 +184,30 @@ pub(crate) async fn reconfirm_widened(
     if widened.is_empty() {
         return Ok(after);
     }
-    let mut current = after;
-    for target in widened {
-        let disabled = state
-            .runtime
-            .plugin_set_enabled(cwd, &target.target, false, Some(&target.scope))
-            .await?;
-        if consent::enabled_at(&disabled.plugins, &target.id, &target.scope) {
-            audit::permission_denied(&target.id, Some(&target.scope));
-            return Err(IpcError::new(
-                PLUGIN_CONSENT_REQUIRED,
-                "The upgraded plugin brings code that was not confirmed, and it could not be disabled.",
+    let grants = state.store.plugin_grants(project_key).await?;
+    for target in consent::renewals(&widened, &grants) {
+        let Ok(key) = consent::grant_key(&target.scope, project_key) else {
+            log::warn(&format!(
+                "plugin {}@{scope} was upgraded with new reasons ({reasons}) but no workspace was named to record the confirmation against",
+                target.id,
+                scope = target.scope,
+                reasons = target.reasons.join(",")
             ));
-        }
-        let key = consent::grant_key(&target.scope, project_key)?;
+            continue;
+        };
         state
             .store
-            .set_plugin_grant(&target.id, &target.scope, &key, false)
+            .set_plugin_grant(&target.id, &target.scope, &key, true)
             .await?;
-        audit::disable(&target.id, Some(&target.scope));
-        audit::permission_denied(&target.id, Some(&target.scope));
+        audit::permission_renewed(&target.id, Some(&target.scope), &target.reasons);
         log::info(&format!(
-            "plugin {}@{scope} was upgraded with new reasons ({reasons}) and needs confirming again",
+            "plugin {}@{scope} was upgraded with new reasons ({reasons}); the confirmation carries over",
             target.id,
             scope = target.scope,
             reasons = target.reasons.join(",")
         ));
-        current = disabled;
     }
-    Ok(current)
+    Ok(after)
 }
 
 /// The write one enable or disable performs: the engine handle it addresses, the direction, and the

@@ -321,7 +321,7 @@ async fn perform(
         }
         SwitchStep::Install { install_spec } => state
             .runtime
-            .plugin_install(cwd, install_spec, Some(scope))
+            .plugin_install(cwd, install_spec, Some(scope), false)
             .await
             .map(|_| ()),
         SwitchStep::Enable { install_spec } => state
@@ -386,11 +386,11 @@ pub(crate) async fn switch_source(
         }
     };
     // The consent chain an upgrade runs, for the same reason: the package that now runs may bring
-    // reasons the confirmed version did not, and a replacement the engine has already performed is
-    // reconciled here rather than left running under an answer about the old code (spec §6.5).
+    // reasons the confirmed version did not, and a replacement the engine has already performed has
+    // its confirmation carried over to the new code rather than left describing the old one.
     let after = state.runtime.plugins(cwd).await?;
     let reconciled =
-        consent_flow::reconfirm_widened(state, cwd, project_key, &before.plugins, after).await?;
+        consent_flow::renew_widened_grants(state, project_key, &before.plugins, after).await?;
     let plugins = consent_flow::quarantine_unconfirmed(state, cwd, project_key, reconciled).await?;
     audit::update_switch(plugin_id, Some(scope), target_marketplace);
     Ok((plugins, switched))

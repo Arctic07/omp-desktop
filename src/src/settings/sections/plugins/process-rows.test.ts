@@ -154,6 +154,7 @@ function row(overrides: Partial<PluginRow> = {}): PluginRow {
       dapConfig: false,
     },
     settings: { keys: [], hasSecret: false },
+    features: [],
     desktop: desktop(),
     desktopError: null,
     ...overrides,

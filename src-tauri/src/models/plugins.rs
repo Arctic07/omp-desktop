@@ -32,9 +32,11 @@ mod desktop;
 // The identity rule (`plugin_id` vs. `install_spec`, plan D0) and the update surface (§4.2, §4.3)
 // are splits of the same kind: their names are the contract with the rest of the crate.
 pub(crate) mod identity;
+mod management;
 mod updates;
 
 pub(crate) use desktop::recheck_desktop;
+pub(crate) use management::{PluginAutoUpdateView, PluginDoctorView, PluginInstallPreview};
 pub(crate) use updates::{EnginePluginUpdatesView, PluginUpdateSwitch, PluginUpdateSwitchView};
 
 // ---- the plugin list ----
@@ -96,6 +98,9 @@ pub(crate) struct EnginePluginRow {
     pub(crate) code: EnginePluginCode,
     #[serde(default)]
     pub(crate) settings: EnginePluginSettingsSummary,
+    /// `omp.features` with the engine's resolution; absent from a host that predates it.
+    #[serde(default)]
+    pub(crate) features: Vec<EnginePluginFeature>,
     /// The plugin's `omp.desktop` block, or `null` when it has none - or when it has one this build
     /// could not read, which is what `desktop_error` then explains.
     #[serde(default)]
@@ -231,6 +236,24 @@ pub(crate) struct EnginePluginSettingsSummary {
     pub(crate) keys: Vec<String>,
     #[serde(default)]
     pub(crate) has_secret: bool,
+}
+
+/// One optional feature an `omp.features` block declares, with the engine's own resolution.
+///
+/// `enabled` is not a default this layer infers: the host reads the engine's `enabledFeatures`
+/// (null meaning "the features whose `default` is truthy") and reports the resulting set. The page
+/// writes through the same rule, so a toggle round-trips.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EnginePluginFeature {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    #[serde(default)]
+    pub(crate) default: bool,
+    #[serde(default)]
+    pub(crate) enabled: bool,
 }
 
 /// One page a plugin contributes: a panel window, a work-panel view, a settings destination or a
@@ -588,6 +611,8 @@ pub(crate) struct PluginRowView {
     pub(crate) consent: EnginePluginConsent,
     pub(crate) code: EnginePluginCode,
     pub(crate) settings: EnginePluginSettingsSummary,
+    /// `omp.features`, resolved by the host; an empty list when the manifest declares none.
+    pub(crate) features: Vec<EnginePluginFeature>,
     pub(crate) desktop: Option<EngineDesktopBlock>,
     pub(crate) desktop_error: Option<String>,
 }
@@ -621,6 +646,7 @@ impl From<EnginePluginRow> for PluginRowView {
             consent: row.consent,
             code: row.code,
             settings: row.settings,
+            features: row.features,
             desktop,
             desktop_error: row.desktop_error,
         }

@@ -70,13 +70,15 @@ export interface PluginActions {
    * new version is on another marketplace — the source switch, which the page confirms first.
    */
   upgrade: (row: PluginRow) => void
+  /** Upgrade a plugin in both scopes at once (`upgradePluginAcrossScopes`, no `--scope`). */
+  upgradeBoth: (row: PluginRow) => void
   upgradeAll: () => void
   /** Forget one installation's confirmation, which also disables it. */
   revoke: (row: PluginRow) => void
   refresh: () => void
   checkUpdates: () => void
   reload: () => void
-  installSource: (source: string, scope: PluginScope) => Promise<ApiError | null>
+  installSource: (source: string, scope: PluginScope, force?: boolean) => Promise<ApiError | null>
   /** Install or upgrade from a package file the reader picked (the host runs it as a task). */
   installPackage: (path: string, scope: PluginScope) => Promise<ApiError | null>
   /** Install or upgrade from a URL; the digest is required and checked before any download. */
@@ -86,8 +88,15 @@ export interface PluginActions {
     template: PluginTemplate,
     targetDir: string,
   ) => Promise<{ path: string | null; error: ApiError | null }>
-  setSetting: (row: PluginRow, key: string, value: PluginSettingValue) => Promise<ApiError | null>
-  resetSetting: (row: PluginRow, key: string | null) => Promise<ApiError | null>
+  setSetting: (
+    row: PluginRow,
+    key: string,
+    value: PluginSettingValue,
+    local?: boolean,
+  ) => Promise<ApiError | null>
+  resetSetting: (row: PluginRow, key: string | null, local?: boolean) => Promise<ApiError | null>
+  /** Toggle one `omp.features` entry; the engine's own enabled-feature list is what changes. */
+  setFeature: (row: PluginRow, feature: string, enabled: boolean) => void
 }
 
 /** Two version strings as the same version: the engine's own prefix is not part of the number. */

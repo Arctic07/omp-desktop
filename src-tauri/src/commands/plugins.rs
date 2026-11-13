@@ -15,7 +15,7 @@
 //!
 //! Two writes are more than one call, and each has a service of its own. The consent chain - an
 //! install quarantines what it added, an enable is answered by the confirmation record, a withdrawal
-//! switches off before it forgets, an upgrade reconciles the rows it widened, a removal forgets
+//! switches off before it forgets, an upgrade carries a widened row's answer to the new code, a removal forgets
 //! everything of that id - is `services::plugins::consent_flow`, which is what reads the host and
 //! the store in the order the chain requires; one package file's import - unpack, catalogue,
 //! promote, register, install or upgrade - is `services::plugins::import_flow`, which hands the
@@ -39,8 +39,9 @@ use crate::errors::{
 use crate::models::plugins::identity;
 use crate::models::plugins::{
     BuiltinPluginRow, BuiltinPluginsView, EnginePluginEngineInfo, EnginePluginReloadResult,
-    EnginePluginSettings, EnginePluginUpdatesView, InspectPackageView, PluginGrantsView,
-    PluginScaffoldView, PluginUpdateSwitchView, PluginsView,
+    EnginePluginSettings, EnginePluginUpdatesView, InspectPackageView, PluginAutoUpdateView,
+    PluginDoctorView, PluginGrantsView, PluginInstallPreview, PluginScaffoldView,
+    PluginUpdateSwitchView, PluginsView,
 };
 use crate::services::plugins::audit;
 use crate::services::plugins::builtin;
@@ -50,8 +51,8 @@ use crate::services::plugins::import_flow;
 use crate::services::plugins::scaffold;
 use crate::services::plugins::switch;
 use crate::services::plugins::validate::{
-    sanitize_id, sanitize_marketplace_key, sanitize_scope, sanitize_sha256, sanitize_source,
-    validate_setting_key_length, validate_setting_value,
+    sanitize_feature, sanitize_id, sanitize_marketplace_key, sanitize_scope, sanitize_sha256,
+    sanitize_source, validate_setting_key_length, validate_setting_value,
 };
 use crate::services::tasks::{TaskOutcome, TaskRun};
 use crate::state::AppState;
@@ -183,6 +184,7 @@ pub(crate) async fn engine_plugin_install(
     workspace_id: Option<i64>,
     source: String,
     scope: Option<String>,
+    force: Option<bool>,
 ) -> Result<PluginsView, IpcError> {
     let cwd = workspace_cwd(&state, workspace_id).await?;
     let key = workspace_key(&state, workspace_id).await?;
@@ -194,11 +196,35 @@ pub(crate) async fn engine_plugin_install(
         return Err(refusal);
     }
     let scope = sanitize_scope(scope.as_deref())?;
-    let mut installed =
-        consent_flow::install_from_source(&state, cwd.as_deref(), key.as_deref(), &source, scope)
-            .await?;
+    let mut installed = consent_flow::install_from_source(
+        &state,
+        cwd.as_deref(),
+        key.as_deref(),
+        &source,
+        scope,
+        force.unwrap_or(false),
+    )
+    .await?;
     publish_pages(&app, &state, &mut installed, cwd.as_deref(), key.as_deref()).await;
     Ok(installed.into())
+}
+
+/// What an install from a source would do, without writing anything (`omp plugin install --dry-run`).
+#[tauri::command]
+pub(crate) async fn engine_plugin_install_preview(
+    state: State<'_, AppState>,
+    workspace_id: Option<i64>,
+    source: String,
+    scope: Option<String>,
+    force: Option<bool>,
+) -> Result<PluginInstallPreview, IpcError> {
+    let cwd = workspace_cwd(&state, workspace_id).await?;
+    let source = sanitize_source(&source)?;
+    let scope = sanitize_scope(scope.as_deref())?;
+    state
+        .runtime
+        .plugin_install_preview(cwd.as_deref(), &source, scope, force.unwrap_or(false))
+        .await
 }
 
 /// Installs or upgrades one plugin from a package file the user picked, and answers with the list as
@@ -423,6 +449,59 @@ pub(crate) async fn engine_plugin_set_enabled(
     Ok(plugins.into())
 }
 
+/// Reads or writes the engine's `marketplace.autoUpdate` policy. `value: None` is a read; the host
+/// refuses a mode outside `off` | `notify` | `auto`.
+#[tauri::command]
+pub(crate) async fn engine_plugin_auto_update(
+    state: State<'_, AppState>,
+    value: Option<String>,
+) -> Result<PluginAutoUpdateView, IpcError> {
+    state.runtime.plugin_auto_update(value.as_deref()).await
+}
+
+/// Runs the engine's plugin health check, optionally repairing what it can.
+///
+/// `fix` is the engine's `omp plugin doctor --fix`; a read (`false`) is the same checks without a
+/// write. Row shapes and order are the engine's own answer.
+#[tauri::command]
+pub(crate) async fn engine_plugin_doctor(
+    state: State<'_, AppState>,
+    workspace_id: Option<i64>,
+    fix: bool,
+) -> Result<PluginDoctorView, IpcError> {
+    let cwd = workspace_cwd(&state, workspace_id).await?;
+    state.runtime.plugin_doctor(cwd.as_deref(), fix).await
+}
+
+/// Turns one optional feature of an installation on or off, and answers with the list as it stands
+/// after the write.
+///
+/// Feature selection is the engine's own manifest vocabulary; the host resolves the current list,
+/// applies the one change and writes it back, so this layer only bounds the names it forwards.
+#[tauri::command]
+pub(crate) async fn engine_plugin_feature_set(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: Option<i64>,
+    id: String,
+    scope: Option<String>,
+    feature: String,
+    enabled: bool,
+) -> Result<PluginsView, IpcError> {
+    let cwd = workspace_cwd(&state, workspace_id).await?;
+    let key = workspace_key(&state, workspace_id).await?;
+    let id = sanitize_id(&id)?;
+    let scope = sanitize_scope(scope.as_deref())?;
+    let feature = sanitize_feature(&feature)?;
+    let mut plugins = state
+        .runtime
+        .plugin_feature_set(cwd.as_deref(), &id, scope, &feature, enabled)
+        .await?;
+    publish_pages(&app, &state, &mut plugins, cwd.as_deref(), key.as_deref()).await;
+    log_plugin_list(&plugins);
+    Ok(plugins.into())
+}
+
 /// Upgrades one plugin, or every plugin that has an upgrade, and answers with the list as it stands
 /// afterwards.
 ///
@@ -430,8 +509,8 @@ pub(crate) async fn engine_plugin_set_enabled(
 /// is the engine's own `upgradeAll` path; a named id upgrades that plugin at that scope.
 ///
 /// An upgrade is a replacement the engine has already performed, so the same chain an import runs
-/// finishes it: the widened rows are reconciled and everything left unconfirmed is quarantined, in
-/// that order (`services::plugins::consent_flow::upgrade`, spec §6.5).
+/// finishes it: a widened row's confirmation is re-recorded against the new code and everything left
+/// unconfirmed is quarantined, in that order (`services::plugins::consent_flow::upgrade`).
 #[tauri::command]
 pub(crate) async fn engine_plugin_upgrade(
     app: tauri::AppHandle,
@@ -621,10 +700,19 @@ pub(crate) async fn engine_plugin_config_set(
     id: String,
     key: String,
     value: Value,
+    local: Option<bool>,
 ) -> Result<EnginePluginSettings, IpcError> {
     let cwd = workspace_cwd(&state, workspace_id).await?;
     let id = sanitize_id(&id)?;
     validate_setting_key_length(&key)?;
+    let local = local.unwrap_or(false);
+    // A project override without a workspace has no file to live in.
+    if local && cwd.is_none() {
+        return Err(IpcError::new(
+            INVALID_INPUT,
+            "Project-local plugin settings need a workspace.",
+        ));
+    }
     let settings = state.runtime.plugin_config(cwd.as_deref(), &id).await?;
     let schema = settings
         .schema
@@ -633,7 +721,7 @@ pub(crate) async fn engine_plugin_config_set(
     validate_setting_value(schema, &value)?;
     let written = state
         .runtime
-        .plugin_config_set(cwd.as_deref(), &id, &key, value)
+        .plugin_config_set(cwd.as_deref(), &id, &key, value, local)
         .await?;
     // The line carries the plugin and nothing of the write: which key and which value were stored is
     // what the settings page shows, and a value can be a token.
@@ -654,9 +742,17 @@ pub(crate) async fn engine_plugin_config_reset(
     workspace_id: Option<i64>,
     id: String,
     key: Option<String>,
+    local: Option<bool>,
 ) -> Result<EnginePluginSettings, IpcError> {
     let cwd = workspace_cwd(&state, workspace_id).await?;
     let id = sanitize_id(&id)?;
+    let local = local.unwrap_or(false);
+    if local && cwd.is_none() {
+        return Err(IpcError::new(
+            INVALID_INPUT,
+            "Project-local plugin settings need a workspace.",
+        ));
+    }
     let key = key
         .as_deref()
         .map(str::trim)
@@ -666,7 +762,7 @@ pub(crate) async fn engine_plugin_config_reset(
     }
     let settings = state
         .runtime
-        .plugin_config_reset(cwd.as_deref(), &id, key)
+        .plugin_config_reset(cwd.as_deref(), &id, key, local)
         .await?;
     audit::config_reset(&id, None);
     Ok(settings)

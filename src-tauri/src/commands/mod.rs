@@ -5,6 +5,7 @@ pub(crate) mod capabilities;
 pub(crate) mod clipboard;
 pub(crate) mod custom_providers;
 pub(crate) mod diagnostics;
+pub(crate) mod extensions;
 pub(crate) mod git;
 pub(crate) mod mcp_import;
 pub(crate) mod omp_import;

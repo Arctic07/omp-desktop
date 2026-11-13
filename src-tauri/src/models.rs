@@ -1,5 +1,6 @@
 pub(crate) mod agent;
 pub(crate) mod capabilities;
+pub(crate) mod extensions;
 pub(crate) mod omp_import;
 pub(crate) mod plugins;
 pub(crate) mod presence;

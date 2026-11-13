@@ -27,7 +27,7 @@ import * as path from 'node:path'
 
 import type { BootServices } from './boot.ts'
 import { enumField, requireBoolean, requireText, resolveCwd } from './capabilities.ts'
-import { PLUGIN_ID_MAX } from './constants.ts'
+import { PLUGIN_ID_MAX, PLUGIN_KEY_MAX } from './constants.ts'
 import type { HostPaths } from './env.ts'
 import { logLine, sanitizeMessage } from './log.ts'
 import { pluginRows } from './plugins-facts.ts'
@@ -47,6 +47,7 @@ import {
 } from './plugins-market.ts'
 import type { SessionRegistry } from './sessions.ts'
 import type { SdkBundle } from './sdk.ts'
+import { resolveConfigTarget } from './plugins-settings.ts'
 
 export {
   addMarketplace,
@@ -127,6 +128,7 @@ export async function installPlugin(
 ): Promise<Record<string, unknown>> {
   const source = pluginSourceField(frame.source)
   const scope = scopeField(frame.scope)
+  const force = frame.force === undefined ? false : requireBoolean(frame.force, 'force')
   const cwd = resolveCwd(paths, frame.cwd)
   const { manager, market } = await pluginManagers(sdk, cwd)
   const known = new Set((await market.listMarketplaces()).map(entry => entry.name))
@@ -157,7 +159,12 @@ export async function installPlugin(
     if (declaredUrl !== '') assertSourceScheme(declaredUrl)
     const install = () =>
       callEngine(
-        () => market.installPlugin(target.name, target.marketplace, scope === null ? {} : { scope }),
+        () =>
+          market.installPlugin(
+            target.name,
+            target.marketplace,
+            scope === null ? { force } : { scope, force },
+          ),
         `install ${source}`,
       )
     try {
@@ -194,10 +201,75 @@ export async function installPlugin(
       }
       await callEngine(() => manager.link(resolved), `link "${resolved}"`)
     } else {
-      await callEngine(() => manager.install(target.spec), `install "${target.spec}"`)
+      await callEngine(
+        () => manager.install(target.spec, force ? { force: true } : {}),
+        `install "${target.spec}"`,
+      )
     }
   }
   return await reloadAndList(registry, sdk, cwd)
+}
+
+/**
+ * `plugins_install_preview`: what `plugins_install` would do, without doing it.
+ *
+ * The engine's own `--dry-run` (`cli/plugin-cli.ts`): a marketplace entry is validated
+ * (`validateInstallPlugin`, which checks the catalog entry and the version it would fetch), a local
+ * path must exist, and an npm/git spec goes through `PluginManager.install(spec, {dryRun:true})`,
+ * whose synthetic answer names the package and the features the spec selects. Nothing is written;
+ * the page shows the name, the version it could know, and the scope.
+ */
+export async function previewPluginInstall(
+  paths: HostPaths,
+  _services: BootServices,
+  sdk: SdkBundle,
+  frame: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const source = pluginSourceField(frame.source)
+  const scope = scopeField(frame.scope)
+  const force = frame.force === undefined ? false : requireBoolean(frame.force, 'force')
+  const cwd = resolveCwd(paths, frame.cwd)
+  const { manager, market } = await pluginManagers(sdk, cwd)
+  const known = new Set((await market.listMarketplaces()).map(entry => entry.name))
+  const target = sdk.classifyInstallTarget(source, known)
+  if (target.type === 'marketplace') {
+    await callEngine(
+      () => market.validateInstallPlugin(target.name, target.marketplace, scope === null ? { force } : { scope, force }),
+      `preview ${source}`,
+    )
+    const entry = (await callEngine(() => market.listAvailablePlugins(target.marketplace), `read "${target.marketplace}"`))
+      .find(candidate => candidate.name === target.name)
+    return {
+      kind: 'marketplace',
+      name: target.name,
+      version: entry?.version ?? null,
+      scope: scope ?? 'user',
+      // No bracket spec: the engine installs with its own default feature set, so nothing is
+      // selected and nothing is excluded - the same `null` an all-features spec answers with.
+      features: null,
+    }
+  }
+  if (target.type === 'local') {
+    const resolved = path.resolve(cwd, target.path)
+    if (!pathIsDirectory(resolved)) {
+      throw invalidInput(`The install source is not a directory: ${sanitizeMessage(resolved)}`)
+    }
+    return { kind: 'link', name: path.basename(resolved), version: null, scope: 'user', features: null }
+  }
+  if (!probePluginToolchain().bun) throw pluginToolchainRefusal(`preview "${target.spec}"`, 'bun')
+  const preview = await callEngine(
+    () => manager.install(target.spec, { dryRun: true }),
+    `preview "${target.spec}"`,
+  )
+  return {
+    kind: 'npm',
+    name: preview.name,
+    version: preview.version === '0.0.0-dryrun' ? null : preview.version,
+    scope: 'user',
+    // `null` is the engine's own answer for `pkg[*]` (every feature the manifest declares); an
+    // empty array would say the opposite, that the spec selects none.
+    features: preview.enabledFeatures,
+  }
 }
 
 /**
@@ -342,15 +414,89 @@ export async function setPluginEnabled(
 }
 
 /**
+ * `plugins_features_set`: enable or disable one optional feature of an installation.
+ *
+ * The engine's rule is the only one that decides what a list means (`enabledFeatures === null`
+ * = the features whose `default` is truthy, an array = exactly those names), so this frame reads
+ * the manager's own resolution, applies the one change, and writes the resulting list back. The
+ * defaults are materialized when a `null` list is first edited, which is what makes turning one
+ * default feature off leave the others on. Feature names are the manifest's own keys, checked
+ * against the engine's parsed block before anything is written.
+ */
+export async function setPluginFeature(
+  paths: HostPaths,
+  _services: BootServices,
+  sdk: SdkBundle,
+  frame: Record<string, unknown>,
+  registry: SessionRegistry,
+): Promise<Record<string, unknown>> {
+  const targetId = requireText(frame.targetId, 'targetId', PLUGIN_ID_MAX).trim()
+  const feature = requireText(frame.feature, 'feature', PLUGIN_KEY_MAX).trim()
+  const enabled = requireBoolean(frame.enabled, 'enabled')
+  const cwd = resolveCwd(paths, frame.cwd)
+  const scope = scopeField(frame.scope)
+  const { manager, market } = await pluginManagers(sdk, cwd)
+  const target = await resolveConfigTarget(sdk.parsePluginId, manager, market, targetId, scope)
+  if (target.plugin === null) {
+    throw new HostError(ERROR_CODES.plugin_not_found, `"${targetId}" carries no engine manifest to name a feature from.`)
+  }
+  const declared = target.plugin.manifest.features ?? {}
+  if (!Object.hasOwn(declared, feature)) {
+    throw invalidInput(`"${targetId}" declares no feature named "${feature}".`)
+  }
+  const defaults = Object.entries(declared)
+    .filter(([, value]) => Boolean(value.default))
+    .map(([name]) => name)
+  const current = target.plugin.enabledFeatures
+  const base = current === null ? defaults : current
+  const next = enabled ? [...new Set([...base, feature])] : base.filter(name => name !== feature)
+  await callEngine(
+    () => manager.setEnabledFeatures(target.key, next),
+    `set feature "${feature}" on "${targetId}"`,
+  )
+  return await reloadAndList(registry, sdk, cwd)
+}
+
+/**
+ * `plugins_doctor`: the engine's own health check, optionally repairing what it can.
+ *
+ * `PluginManager.doctor({fix})` is the rule (`omp plugin doctor --fix`): it checks the plugins
+ * directory, the package manifest, `node_modules`, every recorded plugin's files and version drift
+ * against the lock, and repairs what it can when `fix` is set. Nothing here re-implements a check;
+ * the rows are the engine's own answer, and `fixed` is the engine's own report of what the run
+ * changed.
+ */
+export async function pluginDoctor(
+  paths: HostPaths,
+  _services: BootServices,
+  sdk: SdkBundle,
+  frame: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const cwd = resolveCwd(paths, frame.cwd)
+  const fix = frame.fix === undefined ? false : requireBoolean(frame.fix, 'fix')
+  const { manager } = await pluginManagers(sdk, cwd)
+  const checks = await callEngine(() => manager.doctor({ fix }), fix ? 'check and repair the plugins' : 'check the plugins')
+  return {
+    checks: checks.map(check => ({
+      name: check.name,
+      status: check.status,
+      message: check.message,
+      fixed: check.fixed === true,
+    })),
+  }
+}
+
+/**
  * `plugins_upgrade`: reinstall one plugin at its catalog version, or every stale one.
  *
  * `upgraded` is the engine's own answer, passed through as it came: `upgradeAllPlugins()` reports
- * the `{ pluginId, scope, from, to }` rows it applied, a single `upgradePlugin()` reports the
- * install entry it wrote. The target is the row's install handle (plan §4.1) - a bare name must not
- * be guessed into one - and a handle the engine does not record is `plugin_not_found` before any
- * work runs. An npm or linked plugin keeps the engine's own answer for it: `upgradePlugin` addresses
- * a marketplace install, so the package name reaches the engine and its refusal is classified, never
- * turned into a removal or a silent no-op.
+ * the `{ pluginId, scope, from, to }` rows it applied, `upgradePlugin`/`upgradePluginAcrossScopes`
+ * report the install entries they wrote, and `PluginManager.upgrade(name)` reports
+ * `{ from, plugin, changed }` for an npm or git install. Routing follows the CLI
+ * (`cli/plugin-cli.ts::handleUpgrade`): a marketplace handle with a scope upgrades that copy; the
+ * same handle without a scope upgrades every scope it is recorded in; an npm/git package name
+ * re-installs from its recorded source. A linked directory has nothing to upgrade - its source is
+ * the working tree - and the engine's own refusal is passed through.
  */
 export async function upgradePlugins(
   paths: HostPaths,
@@ -363,7 +509,7 @@ export async function upgradePlugins(
   const requested = requestedId === undefined || requestedId === null ? '' : requireText(requestedId, 'targetId', PLUGIN_ID_MAX).trim()
   const scope = scopeField(frame.scope)
   const cwd = resolveCwd(paths, frame.cwd)
-  const { market } = await pluginManagers(sdk, cwd)
+  const { manager, market } = await pluginManagers(sdk, cwd)
   const target =
     requested === ''
       ? null
@@ -374,10 +520,15 @@ export async function upgradePlugins(
   const upgraded: unknown =
     target === null
       ? await callEngine(() => market.upgradeAllPlugins(), 'upgrade every stale plugin')
-      : await callEngine(
-          () => market.upgradePlugin(target.kind === 'marketplace' ? target.installId : target.name, scope === null ? undefined : scope),
-          `upgrade "${requested}"`,
-        )
+      : target.kind === 'marketplace'
+        ? await callEngine<unknown>(
+            () =>
+              scope === null
+                ? market.upgradePluginAcrossScopes(target.installId)
+                : market.upgradePlugin(target.installId, scope),
+            `upgrade "${requested}"`,
+          )
+        : await callEngine(() => manager.upgrade(target.name), `upgrade "${requested}"`)
   const view = await reloadAndList(registry, sdk, cwd)
   return { ...view, upgraded }
 }

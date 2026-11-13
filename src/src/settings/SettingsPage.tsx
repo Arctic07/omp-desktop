@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import AboutSection from '@/settings/sections/AboutSection'
 import AppearanceSection from '@/settings/sections/AppearanceSection'
 import GeneralSection from '@/settings/sections/GeneralSection'
+import ExtensionsSection from '@/settings/sections/ExtensionsSection'
 import LogsSection from '@/settings/sections/LogsSection'
 import McpSection from '@/settings/sections/McpSection'
 import MemorySection from '@/settings/sections/MemorySection'
@@ -22,6 +23,7 @@ export type SettingsSectionId =
   | 'general'
   | 'models'
   | 'skills'
+  | 'extensions'
   | 'rules'
   | 'mcp'
   | 'plugins'
@@ -64,6 +66,11 @@ const COPY: Localized<SettingsCopy> = {
         description:
           'Manage project- and user-level skills. Once enabled, use them in chat with `/skill:<name>`.',
       },
+      extensions: {
+        label: 'Extensions',
+        description:
+          'Every item the engine discovered for this scope — skills, rules, tools, hooks, commands and modules — each with the provider it came from and its own enable switch.',
+      },
       rules: {
         label: 'Rules',
         description:
@@ -77,7 +84,7 @@ const COPY: Localized<SettingsCopy> = {
       plugins: {
         label: 'Plugins',
         description:
-          'Install and manage engine plugins: what each one brings, what it may do, and the settings it declares. A plugin that runs code is enabled only after you confirm it.',
+          'Install and manage engine plugins: what each one brings, what it may do, and the settings it declares. Enabling a plugin records the permission grant it runs under; there is no confirmation dialog.',
       },
       memory: {
         label: 'Memory',
@@ -114,6 +121,11 @@ const COPY: Localized<SettingsCopy> = {
         label: '技能',
         description: '管理项目级与用户级技能。启用后可在聊天里通过 `/skill:<name>` 使用。',
       },
+      extensions: {
+        label: '扩展项',
+        description:
+          '引擎在这个范围内发现的全部条目——技能、规则、工具、钩子、命令与模块——每条都标明来源，并可单独启停。',
+      },
       rules: {
         label: '规则',
         description:
@@ -126,7 +138,7 @@ const COPY: Localized<SettingsCopy> = {
       plugins: {
         label: '插件',
         description:
-          '安装与管理引擎插件：每个插件带来了什么、能做什么、声明了哪些设置。会运行代码的插件，确认后才允许启用。',
+          '安装与管理引擎插件：每个插件带来了什么、能做什么、声明了哪些设置。启用时会记录它运行所依据的授权，不再弹出确认对话框。',
       },
       memory: {
         label: '记忆',
@@ -161,6 +173,7 @@ const SECTIONS: readonly SettingsSectionEntry[] = [
   { id: 'general', Section: GeneralSection },
   { id: 'models', Section: ModelsSection },
   { id: 'skills', Section: SkillsSection },
+  { id: 'extensions', Section: ExtensionsSection },
   { id: 'rules', Section: RulesSection },
   { id: 'mcp', Section: McpSection },
   { id: 'plugins', Section: PluginsSection },

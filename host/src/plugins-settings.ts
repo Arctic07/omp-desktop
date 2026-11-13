@@ -10,9 +10,13 @@
  */
 
 import type { BootServices } from './boot.ts'
+import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 
-import { requireText, resolveCwd } from './capabilities.ts'
+import { getProjectPluginOverridesPath } from '@oh-my-pi/pi-utils'
+
+import { requireBoolean, requireText, resolveCwd } from './capabilities.ts'
 import { PLUGIN_ID_MAX, PLUGIN_KEY_MAX, PLUGIN_SETTING_TEXT_MAX } from './constants.ts'
 import type { HostPaths } from './env.ts'
 import { ERROR_CODES, HostError, invalidInput } from './protocol/errors.ts'
@@ -91,22 +95,43 @@ export async function resolveConfigTarget(
   manager: SettingsManager,
   market: SettingsMarket,
   id: string,
+  scope: 'user' | 'project' | null = null,
 ): Promise<ConfigTarget> {
-  const direct = await manager.getPlugin(id)
-  if (direct !== undefined) return { id, key: direct.name, plugin: direct }
+  // The manager's direct read is the copy active at runtime, which is the user-scope one unless a
+  // project install shadows it. A caller that named `project` must not be answered with it: the
+  // same plugin can be installed in both scopes, and the write has to address the one it named.
+  if (scope !== 'project') {
+    const direct = await manager.getPlugin(id)
+    if (direct !== undefined) return { id, key: direct.name, plugin: direct }
+  }
 
   const summaries = await market.listInstalledPlugins()
   const parsed = parse(id)
   const wanted = parsed === null ? id : parsed.name
-  const summary = summaries.find(candidate => candidate.id === id)
-    ?? summaries.find(candidate => candidate.id.slice(0, candidate.id.lastIndexOf('@')) === wanted)
-  const entry = summary?.entries[0]
-  if (summary !== undefined && entry !== undefined) {
+  const byId = summaries.filter(candidate => candidate.id === id)
+  const candidates = byId.length > 0
+    ? byId
+    : summaries.filter(candidate => candidate.id.slice(0, candidate.id.lastIndexOf('@')) === wanted)
+  // A scope the caller named is never traded for another one: falling back to the first entry would
+  // answer a project-scope write with the user-scope copy (or the reverse), and the write would land
+  // on an installation the caller did not name. The scope is a property of an *entry*, not of the
+  // summary: one summary merges both registries, so its own `scope` says nothing about which copies
+  // its `entries` hold.
+  const entry =
+    scope === null
+      ? candidates.find(candidate => candidate.entries[0] !== undefined)?.entries[0]
+      : candidates.flatMap(candidate => candidate.entries).find(candidate => candidate.scope === scope)
+  if (entry !== undefined) {
     const resolved = await manager.getPlugin(wanted, { path: entry.installPath })
     if (resolved !== undefined) return { id, key: resolved.name, plugin: resolved }
     if (await isDirectory(entry.installPath)) return { id, key: wanted, plugin: null }
   }
-  throw new HostError(ERROR_CODES.plugin_not_found, `No plugin is installed as "${id}".`)
+  throw new HostError(
+    ERROR_CODES.plugin_not_found,
+    scope === null
+      ? `No plugin is installed as "${id}".`
+      : `No plugin is installed as "${id}" at the ${scope} scope.`,
+  )
 }
 
 /**
@@ -183,16 +208,138 @@ async function settingsContext(
   paths: HostPaths,
   sdk: SdkBundle,
   frame: Record<string, unknown>,
-): Promise<{ manager: SettingsManager; target: ConfigTarget }> {
+): Promise<{ manager: SettingsManager; target: ConfigTarget; cwd: string }> {
   const cwd = resolveCwd(paths, frame.cwd)
   const { manager, market } = await pluginManagers(sdk, cwd)
   const id = requireText(frame.targetId, 'targetId', PLUGIN_ID_MAX).trim()
   try {
-    return { manager, target: await resolveConfigTarget(sdk.parsePluginId, manager, market, id) }
+    return { manager, target: await resolveConfigTarget(sdk.parsePluginId, manager, market, id), cwd }
   } catch (error) {
     if (error instanceof HostError) throw error
     throw pluginEngineError(`resolve plugin "${id}"`, error)
   }
+}
+
+/**
+ * The project plugin-overrides document (`<workspace>/.omp/plugin-overrides.json`).
+ *
+ * The engine reads this file for project-scope settings, features and disabled plugins
+ * (`PluginManager.#loadProjectOverrides`) but exposes no writer for it, so the host writes it here
+ * for `omp plugin config -l` parity: shape-preserving, one key at a time, with the unknown fields
+ * left exactly as the user's file had them. A malformed document is refused rather than
+ * overwritten: it is the user's file, and repairing it silently would discard what it held.
+ */
+type ProjectOverrides = Record<string, unknown> & {
+  settings?: Record<string, unknown>
+}
+
+async function readProjectOverrides(cwd: string): Promise<ProjectOverrides> {
+  const file = getProjectPluginOverridesPath(cwd)
+  let text: string
+  try {
+    text = await fs.readFile(file, 'utf8')
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {}
+    throw pluginEngineError('read the project plugin overrides', error)
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw invalidInput('The project plugin overrides file is not a JSON object.')
+    }
+    return parsed as ProjectOverrides
+  } catch (error) {
+    if (error instanceof HostError) throw error
+    throw invalidInput('The project plugin overrides file is not valid JSON; edit it by hand first.')
+  }
+}
+
+/**
+ * Write the overrides document atomically; the engine reads it while a session may be running.
+ *
+ * Two things are checked before anything is written, and both are the same rule: this host does not
+ * follow a link that decides where the document lands.
+ *
+ * - The `.omp` directory itself: a checkout that ships it as a symbolic link would otherwise redirect
+ *   the write into whatever it points at. A parent that is not a directory is refused rather than
+ *   created over.
+ * - The temporary file: its name is predictable, and a project's own code runs in this process (a
+ *   plugin's slot module, a hook), so a link planted at that exact name would be followed by
+ *   `writeFile` and then published by `rename` - an arbitrary overwrite outside the workspace. The
+ *   descriptor is opened with `O_EXCL|O_NOFOLLOW` (`'wx'`), which refuses both an existing file and a
+ *   link in one step, and the name carries a random suffix so a planted one is not even hit.
+ */
+async function writeProjectOverrides(cwd: string, overrides: ProjectOverrides): Promise<void> {
+  const file = getProjectPluginOverridesPath(cwd)
+  const parent = path.dirname(file)
+  try {
+    const stats = await fs.lstat(parent)
+    if (stats.isSymbolicLink()) {
+      throw invalidInput(`"${parent}" is a symbolic link; this write refuses to follow it.`)
+    }
+    if (!stats.isDirectory()) throw invalidInput(`"${parent}" is not a directory.`)
+  } catch (error) {
+    if (error instanceof HostError) throw error
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+      throw pluginEngineError('inspect the project plugin overrides directory', error)
+    }
+    await fs.mkdir(parent, { recursive: true })
+  }
+  const temporary = `${file}.tmp-${String(process.pid)}-${randomUUID()}`
+  try {
+    // `wx` is the refusal: it fails on an existing path, so a symlink planted at this name is not
+    // followed, and `rename` below publishes only a file this call created.
+    await fs.writeFile(temporary, `${JSON.stringify(overrides, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  } catch (error) {
+    throw pluginEngineError('create the project plugin overrides file', error)
+  }
+  try {
+    await fs.rename(temporary, file)
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => undefined)
+    throw pluginEngineError('publish the project plugin overrides file', error)
+  }
+}
+
+/** The per-plugin settings block of the overrides document, without trusting its shape. */
+function overridesSettings(overrides: ProjectOverrides): Record<string, unknown> {
+  return typeof overrides.settings === 'object' && overrides.settings !== null && !Array.isArray(overrides.settings)
+    ? overrides.settings
+    : {}
+}
+
+/** One plugin's project override block, copied so a write never mutates the read document. */
+function pluginOverrideBlock(
+  overrides: ProjectOverrides,
+  name: string,
+): { settings: Record<string, unknown>; next: Record<string, unknown> } {
+  const all = overridesSettings(overrides)
+  const block = typeof all[name] === 'object' && all[name] !== null && !Array.isArray(all[name])
+    ? { ...(all[name] as Record<string, unknown>) }
+    : {}
+  return { settings: { ...all }, next: block }
+}
+
+/** Stores one value in the project override block for a plugin. */
+async function setLocalSetting(cwd: string, name: string, key: string, value: unknown): Promise<void> {
+  const overrides = await readProjectOverrides(cwd)
+  const { settings, next } = pluginOverrideBlock(overrides, name)
+  next[key] = value
+  settings[name] = next
+  await writeProjectOverrides(cwd, { ...overrides, settings })
+}
+
+/** Removes the named keys from a plugin's project override block. */
+async function deleteLocalSetting(cwd: string, name: string, keys: readonly string[]): Promise<void> {
+  const overrides = await readProjectOverrides(cwd)
+  const { settings, next } = pluginOverrideBlock(overrides, name)
+  if (Object.keys(next).length === 0) return
+  for (const key of keys) delete next[key]
+  if (Object.keys(next).length === 0) delete settings[name]
+  else settings[name] = next
+  if (Object.keys(settings).length === 0) delete overrides.settings
+  else overrides.settings = settings
+  await writeProjectOverrides(cwd, overrides)
 }
 
 /** `plugins_config_list`: the schema and the current values of one plugin's settings. */
@@ -223,8 +370,9 @@ export async function writePluginConfig(
   sdk: SdkBundle,
   frame: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const { manager, target } = await settingsContext(paths, sdk, frame)
+  const { manager, target, cwd } = await settingsContext(paths, sdk, frame)
   const key = requireText(frame.key, 'key', PLUGIN_KEY_MAX).trim()
+  const local = frame.local === undefined ? false : requireBoolean(frame.local, 'local')
   const schema = settingSchemaFor(target, key)
   if (frame.value === undefined || frame.value === null) throw invalidInput(`Setting "${key}" requires a value.`)
   if (typeof frame.value === 'string' && frame.value.length > PLUGIN_SETTING_TEXT_MAX) {
@@ -233,7 +381,8 @@ export async function writePluginConfig(
   const verdict = sdk.validatePluginSetting(frame.value, schema)
   if (!verdict.valid) throw invalidInput(`Setting "${key}" would not be accepted: ${verdict.error ?? 'invalid value'}`)
   try {
-    await manager.setPluginSetting(target.key, key, frame.value)
+    if (local) await setLocalSetting(cwd, target.key, key, frame.value)
+    else await manager.setPluginSetting(target.key, key, frame.value)
   } catch (error) {
     throw pluginEngineError(`write "${key}"`, error)
   }
@@ -262,14 +411,18 @@ export async function resetPluginConfig(
   sdk: SdkBundle,
   frame: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const { manager, target } = await settingsContext(paths, sdk, frame)
+  const { manager, target, cwd } = await settingsContext(paths, sdk, frame)
   const requested = frame.key === undefined || frame.key === null ? '' : requireText(frame.key, 'key', PLUGIN_KEY_MAX).trim()
+  const local = frame.local === undefined ? false : requireBoolean(frame.local, 'local')
   // The values are read before the writes, because the writes are what change the set.
   const values = await manager.getPluginSettings(target.key)
   const attempted = resetKeysFor(target, requested, values)
   try {
-    for (const key of attempted) {
-      await manager.deletePluginSetting(target.key, key)
+    if (local) await deleteLocalSetting(cwd, target.key, attempted)
+    else {
+      for (const key of attempted) {
+        await manager.deletePluginSetting(target.key, key)
+      }
     }
   } catch (error) {
     throw pluginEngineError(requested === '' ? 'clear the settings' : `reset "${requested}"`, error)

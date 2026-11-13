@@ -75,6 +75,8 @@ interface ManifestRead {
   readonly pkg: Record<string, unknown> | null
   /** A redacted sentence for the row's `desktopError`; `null` when the file was read and parsed. */
   readonly error: string | null
+  /** False when there is no `package.json` at all, which is ordinary for Claude/Agent Plugins. */
+  readonly exists: boolean
 }
 
 /**
@@ -89,25 +91,26 @@ interface ManifestRead {
  */
 export function readPackageJson(root: string): ManifestRead {
   const file = path.join(root, 'package.json')
+  const exists = fs.existsSync(file)
   let text: string
   try {
     text = fs.readFileSync(file, 'utf8')
   } catch (error) {
     logLine(`plugin manifest ${file} could not be read: ${error instanceof Error ? error.message : String(error)}`)
-    return { pkg: null, error: 'package.json could not be read' }
+    return { pkg: null, error: 'package.json could not be read', exists }
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch (error) {
     logLine(`plugin manifest ${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
-    return { pkg: null, error: 'package.json is not valid JSON' }
+    return { pkg: null, error: 'package.json is not valid JSON', exists }
   }
   if (!isRecord(parsed)) {
     logLine(`plugin manifest ${file} is not a JSON object`)
-    return { pkg: null, error: 'package.json is not a JSON object' }
+    return { pkg: null, error: 'package.json is not a JSON object', exists }
   }
-  return { pkg: parsed, error: null }
+  return { pkg: parsed, error: null, exists }
 }
 
 /** The engine's manifest rule: `omp`, else the legacy `pi`, else nothing this host can read. */
@@ -116,6 +119,77 @@ export function manifestOf(pkg: Record<string, unknown> | null): Record<string, 
   if (isRecord(pkg.omp)) return pkg.omp
   if (isRecord(pkg.pi)) return pkg.pi
   return {}
+}
+
+/**
+ * The plugin-manifest documents the engine also reads beside `package.json`, in its own precedence.
+ *
+ * The engine does not require a package manifest at all: an Agent Plugins package declares
+ * `plugin.json` at its root, an OMP-native package may use `.omp-plugin/plugin.json`, and a
+ * Claude-format marketplace entry ships `.claude-plugin/plugin.json`. Those documents carry the
+ * name, version and description a row shows, so a probe that reads only `package.json` reports a
+ * healthy installation as an unreadable manifest. `agent-plugin-format.ts` states the precedence
+ * this list follows: `.omp-plugin` and a root `plugin.json` win over the sibling `.claude-plugin` copy.
+ */
+export const PLUGIN_JSON_FILES = [
+  ['.omp-plugin', 'plugin.json'],
+  ['plugin.json'],
+  ['.claude-plugin', 'plugin.json'],
+] as const satisfies ReadonlyArray<readonly string[]>
+
+/** The parsed manifest documents of one plugin root, plus whether any of them was readable. */
+export interface PluginIdentityRead {
+  readonly name: string | null
+  readonly description: string | null
+  readonly version: string | null
+  /** True when one plugin-manifest document (not `package.json`) parsed as an object. */
+  readonly hasPluginJson: boolean
+}
+
+/**
+ * The identity fields the engine reads from the first manifest document that declares them.
+ *
+ * `package.json`'s own block is the authority - `omp.name`/`description` are what the engine loads
+ * - and the plugin documents are the fallback the engine itself uses for installs that have no
+ * package manifest. A document that is absent or unparsable contributes nothing; the reason a
+ * `package.json` failed is reported by its own reader, not repeated here.
+ */
+export function readPluginIdentity(
+  root: string,
+  pkg: Record<string, unknown> | null,
+  manifest: Record<string, unknown>,
+): PluginIdentityRead {
+  let json: Record<string, unknown> | null = null
+  let hasPluginJson = false
+  for (const parts of PLUGIN_JSON_FILES) {
+    const file = path.join(root, ...parts)
+    let text: string
+    try {
+      text = fs.readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(text)
+      if (!isRecord(parsed)) continue
+      hasPluginJson = true
+      json ??= parsed
+    } catch (error) {
+      logLine(`plugin manifest ${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  const packageName = pkg === null ? null : manifestText(pkg, 'name')
+  const packageDescription = pkg === null ? null : manifestText(pkg, 'description')
+  const packageVersion = pkg === null ? null : manifestText(pkg, 'version')
+  const jsonName = json === null ? null : manifestText(json, 'name')
+  const jsonDescription = json === null ? null : manifestText(json, 'description')
+  const jsonVersion = json === null ? null : manifestText(json, 'version')
+  return {
+    name: manifestText(manifest, 'name') ?? packageName ?? jsonName,
+    description: manifestText(manifest, 'description') ?? packageDescription ?? jsonDescription,
+    version: packageVersion ?? jsonVersion,
+    hasPluginJson,
+  }
 }
 
 /**

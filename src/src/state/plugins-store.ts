@@ -27,6 +27,7 @@ import {
   installPluginPackage,
   installPluginSource,
   installPluginUrl,
+  previewPluginInstallSource,
   marketplacePlugins,
   marketplaces,
   pluginConfig,
@@ -38,6 +39,7 @@ import {
   scaffoldPlugin,
   setPluginConfigValue,
   setPluginEnabled,
+  setPluginFeature,
   setPluginGrant,
   uninstallPlugin,
   updateMarketplace,
@@ -57,6 +59,7 @@ import type {
   JsonObject,
   MarketplacePluginRow,
   PluginGrantRow,
+  PluginInstallPreview,
   PluginNoticeEvent,
   PluginProcessesView,
   PluginPromptEvent,
@@ -66,6 +69,11 @@ import type {
 } from '@/api/plugins-types'
 import { BUILTIN_MARKETPLACE_SOURCE, isBuiltinMarketplace } from '@/lib/plugin-market'
 import { pluginSettingsKey, pluginSettingsTarget } from '@/lib/plugin-settings-key'
+import {
+  installationsToConfirm,
+  installationGranted,
+  pluginRowKey,
+} from '@/state/plugin-grant-rules'
 import { createKeyedResource, createResource, createWorkspaceResource } from '@/state/resource'
 import { createStore } from '@/state/store'
 import { applyPluginProcessEvent, retainActivatedViews } from '@/state/plugin-process'
@@ -190,21 +198,65 @@ export function writePluginUninstall(
   return writePlugins(workspaceId, () => uninstallPlugin(workspaceId, targetId, scope))
 }
 
+/** Toggle one optional feature of an installation; the host writes the engine's enabled list. */
+export function writePluginFeature(
+  workspaceId: number | null,
+  targetId: string,
+  feature: string,
+  enabled: boolean,
+  scope: string,
+): Promise<ApiError | null> {
+  return writePlugins(workspaceId, () =>
+    setPluginFeature(workspaceId, targetId, feature, enabled, scope),
+  )
+}
+
+/**
+ * One install-shaped write: the list write, then the grant for what it added.
+ *
+ * The snapshot is taken before the call because "what did this write add" is a set difference on
+ * the rows, and after it the answer is already adopted over the old list.
+ */
+async function writeInstalling(
+  workspaceId: number | null,
+  run: () => Promise<PluginsView>,
+): Promise<ApiError | null> {
+  const before = await currentRowKeys(workspaceId)
+  const error = await writePlugins(workspaceId, run)
+  if (error === null && before !== null) await grantAdded(workspaceId, before)
+  return error
+}
+
 /** Upgrade one installation by its engine handle, or every one when `targetId` is null. */
 export function writePluginUpgrade(
   workspaceId: number | null,
   targetId: string | null,
   scope: string | null,
 ): Promise<ApiError | null> {
-  return writePlugins(workspaceId, () => upgradePlugin(workspaceId, targetId, scope))
+  return writeInstalling(workspaceId, () => upgradePlugin(workspaceId, targetId, scope))
 }
 
 export function writePluginInstallSource(
   workspaceId: number | null,
   source: string,
   scope: string,
+  force = false,
 ): Promise<ApiError | null> {
-  return writePlugins(workspaceId, () => installPluginSource(workspaceId, source, scope))
+  return writeInstalling(workspaceId, () => installPluginSource(workspaceId, source, scope, force))
+}
+
+/** What a source install would do, without doing it; null when the host refused the source. */
+export async function previewPluginInstallFile(
+  workspaceId: number | null,
+  source: string,
+  scope: string,
+  force: boolean,
+): Promise<{ preview: PluginInstallPreview | null; error: ApiError | null }> {
+  try {
+    return { preview: await previewPluginInstallSource(workspaceId, source, scope, force), error: null }
+  } catch (error) {
+    return { preview: null, error: toApiError(error) }
+  }
 }
 
 /** Install or upgrade from a package file; the host reports the unpacking as a task event. */
@@ -213,7 +265,7 @@ export function writePluginInstallPackage(
   path: string,
   scope: string,
 ): Promise<ApiError | null> {
-  return writePlugins(workspaceId, () => installPluginPackage(workspaceId, path, scope))
+  return writeInstalling(workspaceId, () => installPluginPackage(workspaceId, path, scope))
 }
 
 /** Install or upgrade from a URL; a malformed or missing digest is refused before any download. */
@@ -223,7 +275,7 @@ export function writePluginInstallUrl(
   sha256: string,
   scope: string,
 ): Promise<ApiError | null> {
-  return writePlugins(workspaceId, () => installPluginUrl(workspaceId, url, sha256, scope))
+  return writeInstalling(workspaceId, () => installPluginUrl(workspaceId, url, sha256, scope))
 }
 
 /** What a source switch left behind, as the page states it. */
@@ -247,6 +299,7 @@ export async function writePluginSwitch(
   scope: string,
   targetMarketplace: string,
 ): Promise<PluginSwitchOutcome> {
+  const before = await currentRowKeys(workspaceId)
   try {
     const view = await updatePluginSwitch(workspaceId, pluginId, scope, targetMarketplace)
     const list = { plugins: view.plugins }
@@ -254,6 +307,7 @@ export async function writePluginSwitch(
     marketPluginsResource.adopt(list, workspaceId)
     pluginsResource.adopt(list, workspaceId)
     refreshShellAfterUserWrite(workspaceId)
+    if (before !== null) await grantAdded(workspaceId, before)
     return { switched: view.switched, error: null }
   } catch (error) {
     return { switched: null, error: toApiError(error) }
@@ -343,17 +397,80 @@ export async function writeGrant(
 }
 
 /** Whether this installation's code has been agreed to, keyed the way the host keys a grant. */
-export function isGranted(
-  grants: readonly PluginGrantRow[],
-  pluginId: string,
-  scope: string,
-): boolean {
-  return grants.some((grant) => grant.pluginId === pluginId && grant.scope === scope)
+export const isGranted = installationGranted
+
+/**
+ * Record one installation's confirmation and switch it on: the two writes the dialog used to make.
+ *
+ * The order is the host's: `set_grant` is what answers the enable gate, so enabling first would be
+ * refused. The grant is written even for a row the host left enabled, because the audit reads it.
+ * One function for the two surfaces that used to carry their own copy (`PluginsSection`,
+ * `PluginMarketPage`).
+ *
+ * `targetId` is the caller's `pluginTargetId(row)`: the engine handle for a marketplace row, the
+ * package name for an npm or linked one. It is passed in rather than derived here because the rule
+ * is the rows module's, and `state/` must not depend on a settings section.
+ */
+export async function writeConsent(
+  workspaceId: number | null,
+  row: Pick<PluginRow, 'id' | 'scope'>,
+  targetId: string,
+): Promise<ApiError | null> {
+  const grantError = await writeGrant(workspaceId, row.id, true, row.scope)
+  if (grantError !== null) return grantError
+  return writePluginEnabled(workspaceId, targetId, true, row.scope)
 }
 
 /** A plugin's own key in the page's maps: an id is only unique within its scope. */
-export function pluginKey(plugin: Pick<PluginRow, 'id' | 'scope'>): string {
-  return `${plugin.id}\u0000${plugin.scope}`
+export const pluginKey = pluginRowKey
+
+/**
+ * The rows the workspace held before a write, read from the host rather than from a page's cache.
+ *
+ * A page's resource answers for the key it is showing, which is not necessarily the key being
+ * written; a snapshot taken from it could diff against another workspace's rows. `null` means the
+ * read failed, and the caller then grants nothing: an install whose "before" list is unknown must
+ * not be allowed to look like "everything is new".
+ */
+async function currentRowKeys(workspaceId: number | null): Promise<Set<string> | null> {
+  try {
+    return new Set((await enginePlugins(workspaceId)).plugins.map((row) => pluginKey(row)))
+  } catch (error) {
+    console.error('the plugin list could not be read before a write', toApiError(error))
+    return null
+  }
+}
+
+/**
+ * Grants and enables the installations one write *added*, and nothing else.
+ *
+ * The CLI has no consent step and this application no longer asks either, so a fresh install is
+ * left running the way `omp plugin install` leaves it: the grant row is written (the host's enable
+ * gate and its audit read it) and a row the host quarantined is switched back on.
+ *
+ * The scope is the write's own additions. An earlier version swept every unconfirmed row in the
+ * workspace, which re-granted and re-enabled installations the user had deliberately withdrawn
+ * (`set_grant(false)` disables and forgets), and reversed the host's own widening reconciliation
+ * after an upgrade. A withdrawal is a decision, not a gap for the next install to fill.
+ *
+ * Best-effort by design: the install already happened, so a failed grant is a row left disabled
+ * with its switch on screen - not an install to report as failed.
+ */
+async function grantAdded(workspaceId: number | null, before: Set<string>): Promise<void> {
+  try {
+    const [view, grants] = await Promise.all([enginePlugins(workspaceId), pluginGrants(workspaceId)])
+    for (const row of installationsToConfirm(view.plugins, grants.grants, before)) {
+      await setPluginGrant(workspaceId, row.id, true, row.scope)
+      if (!row.enabled) await setPluginEnabled(workspaceId, row.installId ?? row.id, true, row.scope)
+    }
+    const final = await enginePlugins(workspaceId)
+    settingsPluginsResource.adopt(final, workspaceId)
+    marketPluginsResource.adopt(final, workspaceId)
+    pluginsResource.adopt(final, workspaceId)
+    refreshShellAfterUserWrite(workspaceId)
+  } catch (error) {
+    console.error('a plugin was installed but its grant could not be recorded', toApiError(error))
+  }
 }
 
 /* --------------------------------------------------------------- marketplaces */
@@ -482,9 +599,10 @@ export async function writePluginSetting(
   id: string,
   key: string,
   value: JsonObject | string | number | boolean | null,
+  local = false,
 ): Promise<ApiError | null> {
   try {
-    pluginSettingsResource.adopt(await setPluginConfigValue(workspaceId, id, key, value))
+    pluginSettingsResource.adopt(await setPluginConfigValue(workspaceId, id, key, value, local))
     return null
   } catch (error) {
     return toApiError(error)
@@ -495,9 +613,10 @@ export async function resetPluginSetting(
   workspaceId: number | null,
   id: string,
   key: string | null,
+  local = false,
 ): Promise<ApiError | null> {
   try {
-    pluginSettingsResource.adopt(await resetPluginConfig(workspaceId, id, key))
+    pluginSettingsResource.adopt(await resetPluginConfig(workspaceId, id, key, local))
     return null
   } catch (error) {
     return toApiError(error)

@@ -33,10 +33,10 @@ import { PLUGIN_DAP_FILENAMES, PLUGIN_LSP_FILENAMES, PLUGIN_MCP_FILENAMES } from
 import { logLine } from './log.ts'
 import { desktopOf } from './plugins-desktop.ts'
 import type { DesktopView } from './plugins-desktop.ts'
-import { isRecord, manifestBlockUnreadable, manifestOf, manifestText, pathIsDirectory, pathIsFile, readPackageJson, realRoot } from './plugins-manifest.ts'
+import { isRecord, manifestBlockUnreadable, manifestOf, manifestText, pathIsDirectory, pathIsFile, readPackageJson, readPluginIdentity, realRoot } from './plugins-manifest.ts'
 import { pluginManagers, readPluginCatalog } from './plugins-market.ts'
 import { mergeCandidates, pluginIdOf } from './plugins-rows.ts'
-import type { CodeFacts, PluginCandidate, PluginIdParser, PluginRow } from './plugins-rows.ts'
+import type { CodeFacts, PluginCandidate, PluginFeatureView, PluginIdParser, PluginRow } from './plugins-rows.ts'
 import type {
   InstalledPlugin,
   InstalledPluginEntry,
@@ -52,6 +52,8 @@ export interface PluginFacts {
   readonly description: string | null
   readonly version: string | null
   readonly settings: Record<string, PluginSettingSchema>
+  /** `omp.features` with the engine's own resolution for this installation. */
+  readonly features: PluginFeatureView[]
   readonly consent: { readonly required: boolean; readonly reasons: string[] }
   readonly code: CodeFacts
   readonly desktop: DesktopView | null
@@ -103,6 +105,27 @@ function effectiveBlocks(
     if (enabled) blocks.push(feature)
   }
   return blocks
+}
+
+/**
+ * The manifest's `features` block as the page renders it.
+ *
+ * `enabledFeatures` is the engine's resolution (null = the features whose `default` is truthy), so
+ * this function never decides a default of its own: it reports what the engine would load.
+ */
+function featureFacts(manifest: Record<string, unknown>, enabledFeatures: string[] | null): PluginFeatureView[] {
+  if (!isRecord(manifest.features)) return []
+  const features: PluginFeatureView[] = []
+  for (const [name, value] of Object.entries(manifest.features)) {
+    if (!isRecord(value)) continue
+    features.push({
+      name,
+      description: manifestText(value, 'description'),
+      default: Boolean(value.default),
+      enabled: enabledFeatures === null ? Boolean(value.default) : enabledFeatures.includes(name),
+    })
+  }
+  return features
 }
 
 /**
@@ -174,6 +197,10 @@ export function pluginFacts(root: string, enabledFeatures: string[] | null): Plu
   const manifestRead = readPackageJson(root)
   const pkg = manifestRead.pkg
   const manifest = manifestOf(pkg)
+  // The engine reads name/version/description from the plugin-manifest documents too; a probe
+  // that stopped at `package.json` reported a Claude-format or Agent Plugins package as an
+  // unreadable manifest and asked consent for code it could enumerate.
+  const identity = readPluginIdentity(root, pkg, manifest)
   const blocks = effectiveBlocks(manifest, enabledFeatures)
   const extensions = blocks.reduce((total, block) => total + manifestEntries(block, 'extensions').length, 0)
   const baseTools = blocks.some(block => manifestEntries(block, 'tools').length > 0)
@@ -221,23 +248,32 @@ export function pluginFacts(root: string, enabledFeatures: string[] | null): Plu
   if (desktop.desktop !== null && desktop.desktop.renderer !== null) reasons.push('renderer-module')
   // Fail closed (spec §15.1-4): a `package.json` that could not be read, was not a JSON object, or
   // carries an `omp`/`pi` block that is not an object is a manifest the *engine* may still load
-  // from - its own rule is `omp || pi` and it never requires an object. The row says "there may be
-  // code here" instead of reporting none, which is what would wave the plugin through the gate.
-  const manifestUnreadable = manifestRead.error !== null || manifestBlockUnreadable(pkg)
+  // from - its own rule is `omp || pi` and it never requires an object. A plugin-manifest document
+  // is the engine's other manifest, so a readable one means the package is not unreadable as a
+  // whole: its directories are probed below, and a package manifest that failed is reported on the
+  // page rather than turned into a consent demand for code nobody could enumerate.
+  const unreadablePackage = manifestRead.error !== null && !identity.hasPluginJson
+  const manifestUnreadable = unreadablePackage || (pkg !== null && manifestBlockUnreadable(pkg))
   const consent = manifestUnreadable
     ? { required: true, reasons: ['manifest-unreadable'] }
     : { required: reasons.length > 0, reasons }
+  // A missing `package.json` is ordinary for the other manifest formats; a present one that does
+  // not parse is a real failure the page should still state, even when a plugin.json carried the
+  // identity fields.
+  const packageError =
+    manifestRead.error === null || (!manifestRead.exists && identity.hasPluginJson) ? null : manifestRead.error
   const settings = isRecord(manifest.settings) ? (manifest.settings as Record<string, PluginSettingSchema>) : {}
 
   return {
-    displayName: manifestText(manifest, 'name') ?? (pkg === null ? null : manifestText(pkg, 'name')),
-    description: manifestText(manifest, 'description') ?? (pkg === null ? null : manifestText(pkg, 'description')),
-    version: pkg === null ? null : manifestText(pkg, 'version'),
+    displayName: identity.name,
+    description: identity.description,
+    version: identity.version,
     settings,
+    features: featureFacts(manifest, enabledFeatures),
     consent,
     code,
     desktop: desktop.desktop,
-    desktopError: desktop.error ?? manifestRead.error,
+    desktopError: desktop.error ?? packageError,
   }
 }
 
@@ -293,6 +329,7 @@ function npmCandidate(plugin: InstalledPlugin): PluginCandidate {
     consent: facts.consent,
     code: facts.code,
     settings: settingsSummary(facts),
+    features: facts.features,
     desktop: facts.desktop,
     desktopError: facts.desktopError,
   }
@@ -378,6 +415,7 @@ async function marketCandidate(
     consent: facts.consent,
     code: facts.code,
     settings: settingsSummary(facts),
+    features: facts.features,
     desktop: facts.desktop,
     desktopError: facts.desktopError,
   }

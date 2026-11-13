@@ -61,6 +61,7 @@ function candidate(fields: {
     consent: { required: false, reasons: [] },
     code: NO_CODE,
     settings: { keys: [], hasSecret: false },
+    features: [],
     desktop: null,
     desktopError: null,
     source: {

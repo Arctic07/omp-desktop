@@ -79,6 +79,19 @@ export interface EnginePluginSettingsSummary {
   hasSecret: boolean
 }
 
+/**
+ * One optional `omp.features` entry, with the engine's own resolution.
+ *
+ * `enabled` is what the engine loads (`enabledFeatures === null` enables the truthy defaults); the
+ * page never infers it, and a row from a host that predates the field has an empty list.
+ */
+export interface EnginePluginFeature {
+  name: string
+  description: string | null
+  default: boolean
+  enabled: boolean
+}
+
 /** One page a plugin contributes: a panel window, a view, a settings destination or a sidebar tab. */
 export interface EngineDesktopPage {
   id: string
@@ -274,6 +287,8 @@ export interface PluginRow {
   consent: EnginePluginConsent
   code: EnginePluginCode
   settings: EnginePluginSettingsSummary
+  /** `omp.features`; empty when the manifest declares none or the host predates the field. */
+  features: EnginePluginFeature[]
   desktop: EngineDesktopBlock | null
   desktopError: string | null
 }
@@ -455,6 +470,45 @@ export interface EnginePluginEngineInfo {
   sdkVersion: string
   protocol: number
   toolchain: EnginePluginToolchain
+}
+
+/** One line of the engine's own plugin health check (`omp plugin doctor`). */
+export interface EnginePluginDoctorCheck {
+  name: string
+  /** `ok` | `warning` | `error`. */
+  status: string
+  message: string
+  /** Whether this run repaired the condition. */
+  fixed: boolean
+}
+
+export interface EnginePluginDoctorView {
+  checks: EnginePluginDoctorCheck[]
+}
+
+/** One install as `--dry-run` describes it. */
+export interface PluginInstallPreview {
+  /**
+   * `marketplace` | `npm` | `link`. `npm` is the engine's classification of every package spec, git
+   * URLs included (`classifyInstallTarget` answers `npm` for both).
+   */
+  kind: string
+  name: string
+  version: string | null
+  /** `user` | `project`. */
+  scope: string
+  /**
+   * The `omp.features` names the spec selects, or `null` when it selects everything (`pkg[*]`) or
+   * names no bracket at all - the engine's own `enabledFeatures` answer, not a default this page
+   * computes.
+   */
+  features: string[] | null
+}
+
+/** `plugins_auto_update`: the engine's `marketplace.autoUpdate` policy. */
+export interface PluginAutoUpdateView {
+  /** `off` | `notify` | `auto`. */
+  value: string
 }
 
 /** The host's own report of the rebuild it just ran over the live sessions. */

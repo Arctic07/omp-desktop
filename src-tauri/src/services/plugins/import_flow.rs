@@ -30,7 +30,7 @@
 //! - installed, and the engine reports the catalogue as newer → **upgrade** (the engine reinstalls
 //!   the installation in place, keeping its confirmation and its enabled flag), then the same chain
 //!   is left answered for the new code: the widened rows are reconciled and anything unconfirmed is
-//!   quarantined (`consent_flow::{reconfirm_widened, quarantine_unconfirmed}`);
+//!   quarantined (`consent_flow::{renew_widened_grants, quarantine_unconfirmed}`);
 //! - installed at the same version → the list is answered unchanged, because the import changed the
 //!   source and nothing else;
 //! - installed at a different version the engine does *not* call newer → refused, because silently
@@ -372,6 +372,7 @@ async fn import_package(
             project_key,
             &unpacked.install_spec,
             scope,
+            false,
         )
         .await;
     }
@@ -386,11 +387,11 @@ async fn import_package(
             .runtime
             .plugin_upgrade(cwd, Some(&unpacked.install_spec), Some(target_scope))
             .await?;
-        // A replacement that brings reasons the confirmed version did not is a decision the user has
-        // not made: it is switched off and its confirmation forgotten before the list is answered
-        // (spec §6.5), and anything left unconfirmed is quarantined by the same chain an install runs.
+        // A replacement that brings reasons the confirmed version did not has its confirmation
+        // carried over to the new code before the list is answered, and anything left unconfirmed is
+        // quarantined by the same chain an install runs.
         let reconciled =
-            consent_flow::reconfirm_widened(state, cwd, project_key, &current.plugins, upgraded)
+            consent_flow::renew_widened_grants(state, project_key, &current.plugins, upgraded)
                 .await?;
         return consent_flow::quarantine_unconfirmed(state, cwd, project_key, reconciled).await;
     }

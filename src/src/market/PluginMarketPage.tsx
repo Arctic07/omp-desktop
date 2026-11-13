@@ -57,17 +57,15 @@ import {
   MarketSelectorSkeleton,
   MarketSkeleton,
 } from '@/market/MarketStates'
-import type { PluginEntry } from '@/settings/sections/plugins/contract'
-import { PluginConsentDialog } from '@/settings/sections/plugins/PluginConsentDialog'
 import {
   setMarketplaceEnabled,
   useDisabledMarketplaces,
 } from '@/state/market-visibility'
 import { MarketSourcesDialog } from '@/market/MarketSourcesDialog'
+import { pluginTargetId } from '@/settings/sections/plugins/rows'
 import {
   catalogueResource,
   ensureBuiltinMarketplace,
-  isGranted,
   marketGrantsResource,
   marketplacesResource,
   marketPluginsResource,
@@ -76,11 +74,10 @@ import {
   readMarketGrants,
   readMarketPlugins,
   readMarketplaces,
-  writeGrant,
+  writeConsent,
   writeMarketplaceAdd,
   writeMarketplaceRemove,
   writeMarketplaceUpdate,
-  writePluginEnabled,
   writePluginInstallSource,
 } from '@/state/plugins-store'
 import { useResourceState } from '@/state/resource'
@@ -158,8 +155,22 @@ export function PluginMarketPage({
   const [notice, setNotice] = useState('')
   const [seeding, setSeeding] = useState(true)
   const [seedError, setSeedError] = useState<ApiError | null>(null)
-  /** The installed entry whose code still needs the reader's confirmation. */
-  const [consentEntry, setConsentEntry] = useState<PluginEntry | null>(null)
+
+  /** Grants one installed row and switches it on: one write, shared with the plugin page. */
+  const grantAndEnable = useCallback(
+    async (row: PluginRow) => {
+      if (busyKey !== '') return
+      const targetId = pluginTargetId(row)
+      if (targetId === null) return
+      setBusyKey(`consent:${pluginKey(row)}`)
+      setFailure(null)
+      setNotice('')
+      const error = await writeConsent(workspaceId, row, targetId)
+      setBusyKey('')
+      if (error !== null) setFailure({ title: copy.consentFailed, error })
+    },
+    [busyKey, copy.consentFailed, workspaceId],
+  )
 
   /** The seed, then the catalogue it makes readable. A page left mid-read mounts nothing else. */
   const prepare = useCallback(async () => {
@@ -306,58 +317,9 @@ export function PluginMarketPage({
         return
       }
       setNotice(copy.installedNotice(view.name))
-      const installedRow = marketPluginsResource.store
-        .get()
-        .value?.plugins.find(
-          (row) => row.installId === view.installId && row.scope === installScope,
-        )
-      const currentGrants = marketGrantsResource.store.get().value ?? []
-      if (
-        installedRow !== undefined &&
-        installedRow.consent.required &&
-        !isGranted(currentGrants, installedRow.id, installedRow.scope)
-      ) {
-        setConsentEntry({
-          row: installedRow,
-          key: pluginKey(installedRow),
-          name: view.name,
-          description: installedRow.description ?? '',
-          update: null,
-          granted: false,
-        })
-      }
     },
     [busy, copy, installScope, workspaceId],
   )
-
-  const confirmConsent = useCallback(async () => {
-    const entry = consentEntry
-    if (entry === null || busy) return
-    setBusyKey('consent')
-    setFailure(null)
-    setNotice('')
-    const grantError = await writeGrant(workspaceId, entry.row.id, true, entry.row.scope)
-    if (grantError !== null) {
-      setFailure({ title: copy.consentFailed, error: grantError })
-      setBusyKey('')
-      return
-    }
-    if (entry.row.installId !== null) {
-      const enableError = await writePluginEnabled(
-        workspaceId,
-        entry.row.installId,
-        true,
-        entry.row.scope,
-      )
-      if (enableError !== null) {
-        setFailure({ title: copy.consentFailed, error: enableError })
-        setBusyKey('')
-        return
-      }
-    }
-    setBusyKey('')
-    setConsentEntry(null)
-  }, [busy, consentEntry, copy.consentFailed, workspaceId])
 
   /** One branch per catalogue state, so the render tree does not repeat the same conditions. */
   const renderCatalogueBody = () => {
@@ -442,18 +404,7 @@ export function PluginMarketPage({
           copy={copy}
           installLabel={installLabel}
           onInstall={(entry) => void installEntry(entry)}
-          onConsent={(row, name) => {
-            setFailure(null)
-            setNotice('')
-            setConsentEntry({
-              row,
-              key: pluginKey(row),
-              name,
-              description: row.description ?? '',
-              update: null,
-              granted: false,
-            })
-          }}
+          onConsent={(row) => void grantAndEnable(row)}
         />
         {cataloguePages <= 1 ? null : (
           <div className="flex justify-center pt-1">
@@ -733,13 +684,6 @@ export function PluginMarketPage({
 
         {renderCatalogueBody()}
 
-        <PluginConsentDialog
-          entry={consentEntry}
-          busy={busy}
-          failure={failure?.error ?? null}
-          onConfirm={() => void confirmConsent()}
-          onCancel={() => setConsentEntry(null)}
-        />
       </div>
     </div>
   )

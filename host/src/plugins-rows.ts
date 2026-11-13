@@ -67,6 +67,20 @@ export interface CodeFacts {
   readonly promptsDir: boolean
 }
 
+/**
+ * One optional feature a plugin's manifest declares (`omp.features`).
+ *
+ * The engine's own rule is the authority: `enabledFeatures === null` enables the features whose
+ * `default` is truthy, an array enables exactly the names it lists. `enabled` here is that answer,
+ * not a second default rule.
+ */
+export interface PluginFeatureView {
+  readonly name: string
+  readonly description: string | null
+  readonly default: boolean
+  readonly enabled: boolean
+}
+
 /** Where one row's code comes from, as the engine's own facts describe it (contract §1). */
 export interface PluginRowSource {
   readonly kind: 'marketplace' | 'npm' | 'link'
@@ -110,6 +124,8 @@ export interface PluginRow {
   readonly consent: { readonly required: boolean; readonly reasons: string[] }
   readonly code: CodeFacts
   readonly settings: { readonly keys: string[]; readonly hasSecret: boolean }
+  /** `omp.features`, resolved for this installation; empty when the manifest declares none. */
+  readonly features: PluginFeatureView[]
   readonly desktop: DesktopView | null
   readonly desktopError: string | null
 }
@@ -136,6 +152,8 @@ export interface PluginCandidate {
   readonly consent: { readonly required: boolean; readonly reasons: string[] }
   readonly code: CodeFacts
   readonly settings: { readonly keys: string[]; readonly hasSecret: boolean }
+  /** `omp.features`, with the engine's resolution for this installation. */
+  readonly features: PluginFeatureView[]
   readonly desktop: DesktopView | null
   readonly desktopError: string | null
   readonly source: PluginRowSource
@@ -275,6 +293,7 @@ export function mergeCandidates(candidates: readonly PluginCandidate[], catalog:
       consent: active.consent,
       code: active.code,
       settings: active.settings,
+      features: active.features,
       desktop: active.desktop,
       desktopError: active.desktopError,
     })
