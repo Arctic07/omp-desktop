@@ -181,27 +181,22 @@ pub(crate) fn enabled_at(rows: &[EnginePluginRow], plugin_id: &str, scope: &str)
         .any(|row| identity::plugin_id(row) == plugin_id && row.scope == scope && row.enabled)
 }
 
-/// What one upgrade widened, as the confirmation gate reads it.
+/// The reasons one upgrade added to an installation's code.
 ///
-/// The confirmation this desktop keeps is per *installation* — it names no version and no reason
-/// list, so nothing about a widened upgrade is visible in the record itself. This is the comparison
-/// that closes that hole: the reasons a plugin brings before and after its files were replaced, read
-/// off the same rows the release and the restore answer with.
+/// The confirmation this desktop keeps is per *installation* - it names no version and no reason
+/// list - so nothing about a widened upgrade is visible in the record itself. This is the comparison
+/// that finds it: the reasons a plugin brings before and after its files were replaced, read off the
+/// same rows the release and the restore answer with.
 ///
-/// **The comparison is over `consent.reasons` — the code a package would run — and deliberately not
-/// over the desktop permissions a block declares.** A permission only matters beside the code that
-/// uses it, and the answer the user gave was about what this package does; asking again for a
-/// permission would put a second question in front of a plugin whose code did not change. So an
-/// upgrade that adds `fs.anyPath`, `net.anyHost`, `agent.complete` or `ui.theme.css` keeps the
-/// confirmation the installation already holds, and [`widened_installs`]' `consent.required` guard
-/// stays reasons-only for the same reason. A change that did want permissions counted here would
-/// read them off [`EnginePluginRow::desktop`] and would have to admit a row whose only widening is a
-/// permission — which is also the change that decides when an installation is switched off.
+/// The comparison is over `consent.reasons` - the code a package would run - and deliberately not
+/// over the desktop permissions a block declares. A permission only matters beside the code that
+/// uses it, and an upgrade that adds `fs.anyPath`, `net.anyHost`, `agent.complete` or `ui.theme.css`
+/// changes what that code may reach, not what it does; the reasons are the part that decides whether
+/// the record still describes the package.
 ///
-/// The rule is a set difference in the fail-closed direction: a reason the new code brings that the
-/// confirmed code did not is a decision the user has not made. A *narrower* upgrade is not one — a
-/// plugin that stopped shipping hooks is still covered by the answer the user gave — and an equal one
-/// is the ordinary case.
+/// The rule is a set difference: a reason the new code brings that the confirmed code did not. A
+/// *narrower* upgrade adds none - a plugin that stopped shipping hooks is still covered by the
+/// answer the user gave - and an equal one is the ordinary case.
 pub(crate) fn widened_reasons(before: &[String], after: &[String]) -> Vec<String> {
     after
         .iter()
@@ -212,14 +207,12 @@ pub(crate) fn widened_reasons(before: &[String], after: &[String]) -> Vec<String
 
 /// One installation an upgrade widened, and the reasons the new version adds.
 ///
-/// A type of its own rather than a pair, because the caller does two things with it — switch it off,
-/// then forget the answer it was given — and both need the scope to be the one the row was read at,
-/// and the handle the switch-off is addressed through.
+/// A type of its own rather than a pair because the caller does two things with it - records the
+/// answer against the new code, and states in the audit trail which reasons that answer now covers -
+/// and both need the scope the row was read at beside the id it is keyed by.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WidenedInstall {
     pub(crate) id: String,
-    /// The engine handle of the widened installation: what its switch-off addresses.
-    pub(crate) target: String,
     pub(crate) scope: String,
     /// The reasons the new version brings that the confirmed one did not, for the audit line.
     pub(crate) reasons: Vec<String>,
@@ -247,13 +240,29 @@ pub(crate) fn widened_installs(
         if row.consent.required && !reasons.is_empty() {
             widened.push(WidenedInstall {
                 id: id.into_owned(),
-                target: identity::install_spec(row).to_owned(),
                 scope: row.scope.clone(),
                 reasons,
             });
         }
     }
     widened
+}
+
+/// The widened installations whose confirmation may be carried over: the ones already on record.
+///
+/// A widening renews an answer, it never creates one. The user confirmed this installation's code
+/// once, so a replacement that adds a reason keeps that answer - but an installation whose
+/// confirmation was *withdrawn* has no answer to carry, and re-recording one here would silently
+/// undo the withdrawal. Such a row stays switched off and its switch asks the page's own question
+/// again, which is the state a withdrawal leaves behind.
+pub(crate) fn renewals<'a>(
+    widened: &'a [WidenedInstall],
+    grants: &[PluginGrantRow],
+) -> Vec<&'a WidenedInstall> {
+    widened
+        .iter()
+        .filter(|target| is_granted(grants, &target.id, &target.scope))
+        .collect()
 }
 
 /// Which installation an import addresses: the scope the caller named, the only one there is, or a

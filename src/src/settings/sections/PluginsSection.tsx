@@ -21,8 +21,10 @@ import {
   settingsPluginsResource,
   stopPluginTask,
   updatesStore,
+  writeConsent,
   writeGrant,
   writePluginEnabled,
+  writePluginFeature,
   writePluginInstallPackage,
   writePluginInstallSource,
   writePluginInstallUrl,
@@ -46,11 +48,6 @@ import {
   type PluginScope,
   type PluginSettingValue,
 } from '@/settings/sections/plugins/contract'
-import {
-  PluginSwitchCard,
-  PluginUninstallCard,
-} from '@/settings/sections/plugins/PluginCards'
-import { PluginConsentDialog } from '@/settings/sections/plugins/PluginConsentDialog'
 import { PluginDetailView } from '@/settings/sections/plugins/PluginDetailView'
 import { PluginListView } from '@/settings/sections/plugins/PluginListView'
 import { pluginDisplayName } from '@/state/plugin-text'
@@ -128,12 +125,6 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
   const lastTarget = useRef<WorkspaceScopeTarget>(target)
   const [failures, setFailures] = useState<Readonly<Record<string, ApiError>>>({})
   const [notice, setNotice] = useState<PluginNotice | null>(null)
-  /** The installation whose first enable is waiting for a confirmation, keyed by `pluginKey`. */
-  const [consentKey, setConsentKey] = useState('')
-  /** The installation whose uninstall is waiting for a confirmation, keyed the same way. */
-  const [uninstallKey, setUninstallKey] = useState('')
-  /** The installation whose source switch is waiting for its two confirmations, keyed the same way. */
-  const [switchKey, setSwitchKey] = useState('')
   /** The installation whose detail view is open; null while the list is. */
   const [selected, setSelected] = useState<{ id: string; scope: string } | null>(null)
 
@@ -147,9 +138,6 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       // frame, which is the flash a switch must not produce. The previous rows stay in the DOM under
       // the list's skeleton until both reads answer, and the keyed resource replaces them then.
       setSelected(null)
-      setConsentKey('')
-      setUninstallKey('')
-      setSwitchKey('')
       setFailures({})
       setNotice(null)
       setSwitching(true)
@@ -257,25 +245,23 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
     setRefreshing(false)
   }, [busyKey, refreshing, workspaceId])
 
-  /**
-   * Open the consent dialog and drop that row's stale refusal, so the modal never opens on an error
-   * the reader has already seen behind it.
-   */
-  const openConsent = useCallback((row: PluginRow) => {
-    const rowKey = pluginKey(row)
-    const writeKey = `plugin:${rowKey}`
-    setFailures((current) => {
-      if (current[writeKey] === undefined) return current
-      const next = { ...current }
-      delete next[writeKey]
-      return next
-    })
-    setConsentKey(rowKey)
-  }, [])
+  /** Records the grant and enables the installation: one write, shared with the market page. */
+  const grant = useCallback(
+    (row: PluginRow) => {
+      const targetId = pluginTargetId(row)
+      if (targetId === null) {
+        reportUnaddressable()
+        return
+      }
+      void runWrite(`plugin:${pluginKey(row)}`, () => writeConsent(workspaceId, row, targetId))
+    },
+    [reportUnaddressable, runWrite, workspaceId],
+  )
 
   /**
-   * The switch, which is the page's decision: a plugin whose manifest says it brings code is not
-   * enabled before the reader confirms what it brings. Switching one off is immediate.
+   * The switch, which is the page's decision: a plugin whose manifest says it brings code is
+   * granted and enabled in one write, without a confirmation surface. The grant row is still
+   * recorded, so the host's own enable gate is answered and the audit keeps what ran.
    *
    * The write names the engine's installation handle, not the row's plugin id.
    */
@@ -289,66 +275,36 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       }
       const granted = isGranted(grants, row.id, row.scope)
       if (!row.enabled && row.consent.required && !granted) {
-        openConsent(row)
+        grant(row)
         return
       }
       void runWrite(`plugin:${pluginKey(row)}`, () =>
         writePluginEnabled(workspaceId, targetId, !row.enabled, row.scope),
       )
     },
-    [busyKey, grants, openConsent, reportUnaddressable, runWrite, workspaceId],
+    [busyKey, grants, grant, reportUnaddressable, runWrite, workspaceId],
   )
 
-  /** The grant first, for this installation's own scope: an id in both scopes is two decisions. */
-  const confirmConsent = useCallback(async () => {
-    const entry = entries.find((candidate) => candidate.key === consentKey)
-    if (entry === undefined || busyKey !== '') return
-    const targetId = pluginTargetId(entry.row)
-    if (targetId === null) {
-      setConsentKey('')
-      reportUnaddressable()
-      return
-    }
-    const key = pluginWriteKey(entry)
-    setBusyKey(key)
-    setFailures((current) => {
-      if (current[key] === undefined) return current
-      const next = { ...current }
-      delete next[key]
-      return next
-    })
-    const grantError = await writeGrant(workspaceId, entry.row.id, true, entry.row.scope)
-    if (grantError !== null) {
-      setFailures((current) => ({ ...current, [key]: grantError }))
-      setBusyKey('')
-      return
-    }
-    const enableError = await writePluginEnabled(workspaceId, targetId, true, entry.row.scope)
-    if (enableError !== null) {
-      setFailures((current) => ({ ...current, [key]: enableError }))
-    } else {
-      setConsentKey('')
-    }
-    setBusyKey('')
-  }, [busyKey, consentKey, entries, reportUnaddressable, workspaceId])
-
-  const confirmUninstall = useCallback(async () => {
-    const entry = entries.find((candidate) => candidate.key === uninstallKey)
-    if (entry === undefined) return
-    const targetId = pluginTargetId(entry.row)
-    if (targetId === null) {
-      setUninstallKey('')
-      reportUnaddressable()
-      return
-    }
-    const key = pluginWriteKey(entry)
-    const accepted = await runWrite(key, () =>
-      writePluginUninstall(workspaceId, targetId, entry.row.scope),
-    )
-    if (!accepted) return
-    setUninstallKey('')
-    report(copy.uninstalled(entry.name))
-  }, [copy, entries, report, reportUnaddressable, runWrite, uninstallKey, workspaceId])
+  /** Removes one installation immediately: the row's own action, with no confirmation surface. */
+  const uninstall = useCallback(
+    async (row: PluginRow) => {
+      const targetId = pluginTargetId(row)
+      if (targetId === null) {
+        reportUnaddressable()
+        return
+      }
+      const entry = entries.find(
+        (candidate) => candidate.row.id === row.id && candidate.row.scope === row.scope,
+      )
+      if (entry === undefined) return
+      const accepted = await runWrite(pluginWriteKey(entry), () =>
+        writePluginUninstall(workspaceId, targetId, row.scope),
+      )
+      if (!accepted) return
+      report(copy.uninstalled(entry.name))
+    },
+    [copy, entries, report, reportUnaddressable, runWrite, workspaceId],
+  )
 
   /** Forgets one installation's confirmation, which also stops it: disable, then forget the grant. */
   const revoke = useCallback(
@@ -369,48 +325,15 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
   )
 
   /**
-   * One installation's update, by the route its own kind takes.
-   *
-   * The engine's upgrade only reinstalls within one marketplace, so an in-place update runs as
-   * before; a change of source is the destructive two-step write and opens the card that states it
-   * first, before anything is uninstalled.
-   */
-  const upgrade = useCallback(
-    (row: PluginRow) => {
-      const entry =
-        entries.find(
-          (candidate) => candidate.row.id === row.id && candidate.row.scope === row.scope,
-        ) ?? null
-      if (entry?.update != null && pluginUpdateConfirmation(entry.update) === 'switch-card') {
-        setSwitchKey(entry.key)
-        return
-      }
-      const targetId = pluginTargetId(row)
-      if (targetId === null) {
-        reportUnaddressable()
-        return
-      }
-      const name = pluginDisplayName(row, language)
-      void runWrite(`plugin:${pluginKey(row)}`, () =>
-        writePluginUpgrade(workspaceId, targetId, row.scope),
-      ).then((accepted) => {
-        if (accepted) report(copy.upgraded(name))
-      })
-    },
-    [copy, entries, language, report, reportUnaddressable, runWrite, workspaceId],
-  )
-
-  /**
-   * The source switch, after the card's two confirmations.
+   * The source switch, run immediately.
    *
    * Addressed by the plugin id: the host resolves the current installation itself, because the two
    * steps it runs have different addresses. The answer says whether a failed install was rolled
    * back, and the page states exactly that — nothing changed, or the plugin now comes from the new
    * marketplace.
    */
-  const switchSource = useCallback(async () => {
-    const entry = entries.find((candidate) => candidate.key === switchKey)
-    if (entry === undefined || busyKey !== '') return
+  const switchSource = useCallback(async (entry: PluginEntry) => {
+    if (busyKey !== '') return
     const update = entry.update
     if (update === null || update.marketplace === null) return
     const key = pluginWriteKey(entry)
@@ -428,7 +351,6 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       update.marketplace,
     )
     setBusyKey('')
-    setSwitchKey('')
     if (error !== null) {
       setFailures((current) => ({ ...current, [key]: error }))
       return
@@ -446,7 +368,39 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       return
     }
     report(copy.switchedSource(entry.name, switched.marketplace, switched.to))
-  }, [busyKey, copy, entries, report, switchKey, workspaceId])
+  }, [busyKey, copy, report, workspaceId])
+
+  /**
+   * One installation's update, by the route its own kind takes.
+   *
+   * The engine's upgrade only reinstalls within one marketplace, so an in-place update runs as
+   * before; a change of source is the destructive two-step write, applied immediately like any
+   * other plugin write.
+   */
+  const upgrade = useCallback(
+    (row: PluginRow) => {
+      const entry =
+        entries.find(
+          (candidate) => candidate.row.id === row.id && candidate.row.scope === row.scope,
+        ) ?? null
+      if (entry?.update != null && pluginUpdateConfirmation(entry.update) === 'switch-card') {
+        void switchSource(entry)
+        return
+      }
+      const targetId = pluginTargetId(row)
+      if (targetId === null) {
+        reportUnaddressable()
+        return
+      }
+      const name = pluginDisplayName(row, language)
+      void runWrite(`plugin:${pluginKey(row)}`, () =>
+        writePluginUpgrade(workspaceId, targetId, row.scope),
+      ).then((accepted) => {
+        if (accepted) report(copy.upgraded(name))
+      })
+    },
+    [copy, entries, language, report, reportUnaddressable, runWrite, switchSource, workspaceId],
+  )
 
   const upgradeAll = useCallback(() => {
     void runWrite('upgrade-all', () => writePluginUpgrade(workspaceId, null, null)).then(
@@ -458,6 +412,24 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       },
     )
   }, [copy, report, runWrite, workspaceId])
+
+  /** One plugin in both scopes: the engine's `upgradePluginAcrossScopes` (no `--scope`). */
+  const upgradeBoth = useCallback(
+    (row: PluginRow) => {
+      const targetId = pluginTargetId(row)
+      if (targetId === null) {
+        reportUnaddressable()
+        return
+      }
+      const name = pluginDisplayName(row, language)
+      void runWrite(`plugin:${pluginKey(row)}`, () =>
+        writePluginUpgrade(workspaceId, targetId, null),
+      ).then((accepted) => {
+        if (accepted) report(copy.upgraded(name))
+      })
+    },
+    [copy, language, report, reportUnaddressable, runWrite, workspaceId],
+  )
 
   const runCheckUpdates = useCallback(async () => {
     if (busyKey !== '' || checking) return
@@ -551,8 +523,12 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
   )
 
   const installSource = useCallback(
-    (source: string, scope: PluginScope) =>
-      runInstall('install', () => writePluginInstallSource(workspaceId, source, scope), source),
+    (source: string, scope: PluginScope, force = false) =>
+      runInstall(
+        'install',
+        () => writePluginInstallSource(workspaceId, source, scope, force),
+        source,
+      ),
     [runInstall, workspaceId],
   )
 
@@ -594,14 +570,34 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
   )
 
   const setSetting = useCallback(
-    (row: PluginRow, key: string, value: PluginSettingValue) =>
-      writePluginSetting(workspaceId, row.id, key, value),
+    (row: PluginRow, key: string, value: PluginSettingValue, local = false) =>
+      writePluginSetting(workspaceId, row.id, key, value, local),
     [workspaceId],
   )
 
   const resetSetting = useCallback(
-    (row: PluginRow, key: string | null) => resetPluginSetting(workspaceId, row.id, key),
+    (row: PluginRow, key: string | null, local = false) =>
+      resetPluginSetting(workspaceId, row.id, key, local),
     [workspaceId],
+  )
+
+  /**
+   * One `omp.features` switch. Addressing follows the enable switch: the engine handle names the
+   * installation, and the host writes the engine's enabled-feature list from the row it just read.
+   */
+  const setFeature = useCallback(
+    (row: PluginRow, feature: string, enabled: boolean) => {
+      if (busyKey !== '') return
+      const targetId = pluginTargetId(row)
+      if (targetId === null) {
+        reportUnaddressable()
+        return
+      }
+      void runWrite(`feature:${pluginKey(row)}:${feature}`, () =>
+        writePluginFeature(workspaceId, targetId, feature, enabled, row.scope),
+      )
+    },
+    [busyKey, reportUnaddressable, runWrite, workspaceId],
   )
 
   const actions = useMemo<PluginActions>(
@@ -609,9 +605,10 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       busyKey,
       failures,
       toggle,
-      requestConsent: openConsent,
-      requestUninstall: (row) => setUninstallKey(pluginKey(row)),
+      requestConsent: (row) => grant(row),
+      requestUninstall: (row) => void uninstall(row),
       upgrade,
+      upgradeBoth,
       upgradeAll,
       revoke,
       refresh,
@@ -623,36 +620,31 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
       scaffoldTemplate,
       setSetting,
       resetSetting,
+      setFeature,
     }),
     [
       busyKey,
       failures,
+      grant,
       installPackage,
       installSource,
       installUrl,
-      openConsent,
       scaffoldTemplate,
       refresh,
       reload,
       resetSetting,
       revoke,
       runCheckUpdates,
+      setFeature,
       setSetting,
       toggle,
+      uninstall,
       upgrade,
+      upgradeBoth,
       upgradeAll,
     ],
   )
 
-  const consentEntry = entries.find((entry) => entry.key === consentKey) ?? null
-  const uninstallEntry = entries.find((entry) => entry.key === uninstallKey) ?? null
-  const switchEntry =
-    entries.find(
-      (entry) =>
-        entry.key === switchKey &&
-        entry.update !== null &&
-        pluginUpdateConfirmation(entry.update) === 'switch-card',
-    ) ?? null
   const selectedEntry =
     selected === null
       ? null
@@ -699,36 +691,6 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
         </SettingsNotice>
       )}
 
-      <PluginConsentDialog
-        entry={consentEntry}
-        busy={busyKey !== ''}
-        failure={
-          consentEntry === null ? null : (failures[pluginWriteKey(consentEntry)] ?? null)
-        }
-        onConfirm={() => void confirmConsent()}
-        onCancel={() => setConsentKey('')}
-      />
-
-      {uninstallEntry === null ? null : (
-        <PluginUninstallCard
-          entry={uninstallEntry}
-          copy={copy}
-          busy={busyKey !== ''}
-          onConfirm={() => void confirmUninstall()}
-          onCancel={() => setUninstallKey('')}
-        />
-      )}
-
-      {switchEntry === null ? null : (
-        <PluginSwitchCard
-          entry={switchEntry}
-          copy={copy}
-          busy={busyKey !== ''}
-          onConfirm={() => void switchSource()}
-          onCancel={() => setSwitchKey('')}
-        />
-      )}
-
       {pluginsState.value === null ? null : selectedEntry === null ? (
         <PluginListView
           copy={copy}
@@ -767,10 +729,11 @@ export default function PluginsSection({ onBrowseMarket }: SettingsSectionProps)
           configStatus={selectedConfigStatus}
           configError={selectedConfigStatus === 'error' ? configState.error : null}
           engineInfo={engineInfoState.value}
-          uninstallOpen={
-            uninstallEntry !== null && selectedEntry.key === uninstallEntry.key
-          }
           workspaceId={workspaceId}
+          bothScopes={entries.some(
+            (entry) =>
+              entry.row.id === selectedEntry.row.id && entry.row.scope !== selectedEntry.row.scope,
+          )}
           onBack={() => setSelected(null)}
         />
       )}

@@ -29,6 +29,7 @@ import type { FrameWriter } from './outbound.ts'
 import { complete as pluginComplete, readRequest as readCompletionRequest } from './plugin-agent.ts'
 import { pluginEngineInfo } from './plugins-engine.ts'
 import type { PluginSessionsPort } from './plugin-sessions.ts'
+import { listExtensions, setExtension } from './extensions.ts'
 import { sessionGet, sessionList, sessionMessages, usageTurns } from './plugin-sessions.ts'
 import { sockets } from './plugin-websocket.ts'
 import { text } from './protocol/fields.ts'
@@ -39,11 +40,14 @@ import {
   listMarketplacePlugins,
   listMarketplaces,
   listPlugins,
+  pluginDoctor,
+  previewPluginInstall,
   readPluginConfig,
   reloadPlugins,
   removeMarketplace,
   resetPluginConfig,
   setPluginEnabled,
+  setPluginFeature,
   uninstallPlugin,
   updateMarketplace,
   upgradePlugins,
@@ -56,6 +60,8 @@ import type { SdkBundle } from './sdk.ts'
 import {
   readApprovalMode,
   readCompaction,
+  readPluginAutoUpdate,
+  writePluginAutoUpdate,
   setApprovalMode,
   setCompaction,
   setCompactionOptions,
@@ -330,6 +336,11 @@ export class Dispatcher {
             installPlugin(this.#context.paths, this.#context.services, this.#context.sdk, frame, this.#context.registry),
           )
           return
+        case 'plugins_install_preview':
+          this.#detach(type, frame, () =>
+            previewPluginInstall(this.#context.paths, this.#context.services, this.#context.sdk, frame),
+          )
+          return
         case 'plugins_uninstall':
           this.#detach(type, frame, () =>
             uninstallPlugin(this.#context.paths, this.#context.services, this.#context.sdk, frame, this.#context.registry),
@@ -345,6 +356,11 @@ export class Dispatcher {
             setPluginEnabled(this.#context.paths, this.#context.services, this.#context.sdk, frame, this.#context.registry),
           )
           return
+        case 'plugins_features_set':
+          this.#detach(type, frame, () =>
+            setPluginFeature(this.#context.paths, this.#context.services, this.#context.sdk, frame, this.#context.registry),
+          )
+          return
         case 'plugins_upgrade':
           this.#detach(type, frame, () =>
             upgradePlugins(this.#context.paths, this.#context.services, this.#context.sdk, frame, this.#context.registry),
@@ -353,6 +369,19 @@ export class Dispatcher {
         case 'plugins_check_updates':
           this.#detach(type, frame, () =>
             checkPluginUpdates(this.#context.paths, this.#context.services, this.#context.sdk, frame),
+          )
+          return
+        case 'plugins_auto_update':
+          this.#ok(
+            id,
+            frame.value === undefined
+              ? readPluginAutoUpdate(this.#context.services)
+              : await writePluginAutoUpdate(this.#context.services, frame),
+          )
+          return
+        case 'plugins_doctor':
+          this.#detach(type, frame, () =>
+            pluginDoctor(this.#context.paths, this.#context.services, this.#context.sdk, frame),
           )
           return
         // The engine diagnostic behind the plugin page's "can this machine install plugins" line:
@@ -392,6 +421,26 @@ export class Dispatcher {
         // (an edit, a checkout, another process's install), and a session only reads them once.
         case 'plugins_reload':
           this.#ok(id, await reloadPlugins(this.#context.registry))
+          return
+        // The engine's extensions dashboard: every discovered item and the `disabledExtensions`
+        // setting. The write is detached for the plugin write's reason - it reloads every live
+        // session, which awaits engine discovery and can take longer than a read's budget.
+        case 'extensions_list':
+          this.#ok(
+            id,
+            await listExtensions(this.#context.paths, this.#context.services, this.#context.sdk, frame),
+          )
+          return
+        case 'extensions_set':
+          this.#detach(type, frame, () =>
+            setExtension(
+              this.#context.paths,
+              this.#context.services,
+              this.#context.sdk,
+              frame,
+              this.#context.registry,
+            ),
+          )
           return
         // The P1 read surfaces (`omp.desktop` API 0.2.0): the index, the accounting and one
         // conversation's messages, answered from what this host already holds. None of them is

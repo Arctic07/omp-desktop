@@ -29,6 +29,7 @@ fn view(desktop: Option<EngineDesktopBlock>) -> PluginRowView {
         consent: EnginePluginConsent::default(),
         code: EnginePluginCode::default(),
         settings: EnginePluginSettingsSummary::default(),
+        features: Vec::new(),
         desktop,
         desktop_error: None,
     })

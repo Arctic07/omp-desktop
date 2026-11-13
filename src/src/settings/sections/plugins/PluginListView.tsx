@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import {
   CircleArrowUp,
   Download,
@@ -14,7 +14,8 @@ import {
 import type { ApiError } from '@/api/client'
 import { PLUGIN_TEMPLATES, type PluginTemplate } from '@/api/plugins'
 import { chooseFolder, choosePluginPackage } from '@/api/dialog'
-import type { InspectPackageView } from '@/api/plugins-types'
+import { pluginAutoUpdate } from '@/api/plugins'
+import type { InspectPackageView, PluginInstallPreview } from '@/api/plugins-types'
 import { AnimatedBadge } from '@/components/motion/animated-badge'
 import { Button } from '@/components/motion/button'
 import { Input } from '@/components/motion/input'
@@ -30,7 +31,7 @@ import { Switch } from '@/components/motion/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/motion/tabs'
 import { WorkspaceScopeSelect } from '@/settings/WorkspaceScopeSelect'
 import type { WorkspaceScopeTarget } from '@/settings/use-workspace-scope'
-import { inspectPluginPackageFile, type TrackedPluginTask } from '@/state/plugins-store'
+import { inspectPluginPackageFile, previewPluginInstallFile, type TrackedPluginTask } from '@/state/plugins-store'
 import { SettingsBadge, SettingsCard, SettingsField, SettingsGroup, SettingsNotice } from '@/settings/parts'
 import type { PluginsCopy } from '@/settings/sections/plugins/copy'
 import {
@@ -141,6 +142,37 @@ export function PluginListView({
     workspaceTarget === 'user' ? 'user' : 'project',
   )
   const [sourceError, setSourceError] = useState('')
+  /** The last dry-run of a source install, and whether one is in flight. */
+  const [preview, setPreview] = useState<PluginInstallPreview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [previewError, setPreviewError] = useState<ApiError | null>(null)
+  const [forceInstall, setForceInstall] = useState(false)
+  /** The engine's startup marketplace policy; read once when the page mounts. */
+  const [autoUpdate, setAutoUpdate] = useState('')
+  useEffect(() => {
+    let live = true
+    void pluginAutoUpdate()
+      .then((view) => {
+        if (live) setAutoUpdate(view.value)
+      })
+      .catch(() => {
+        // A refused read leaves the selector on its initial value; the setting itself is unchanged.
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+  const changeAutoUpdate = useCallback(async (next: string) => {
+    setAutoUpdate(next)
+    try {
+      const view = await pluginAutoUpdate(next)
+      setAutoUpdate(view.value)
+    } catch {
+      // The host refused the write; leave the engine's current value as the only truth by re-reading.
+      const view = await pluginAutoUpdate().catch(() => null)
+      if (view !== null) setAutoUpdate(view.value)
+    }
+  }, [])
   /** The picked package, and what the host read out of it before anything was installed. */
   const [packagePath, setPackagePath] = useState('')
   const [inspection, setInspection] = useState<InspectPackageView | null>(null)
@@ -168,6 +200,32 @@ export function PluginListView({
   const searching = query.trim() !== ''
   const listLoading = refreshing || checking || reloading
 
+  /** Dry-run the source: the engine's own `--dry-run`, without writing anything. */
+  async function previewInstall(): Promise<void> {
+    const trimmed = source.trim()
+    if (trimmed === '') {
+      setSourceError(copy.sourceRequired)
+      return
+    }
+    if (trimmed.length > SOURCE_MAX_LENGTH) {
+      setSourceError(copy.sourceTooLong)
+      return
+    }
+    setSourceError('')
+    setPreview(null)
+    setPreviewError(null)
+    setPreviewing(true)
+    const { preview: read, error } = await previewPluginInstallFile(
+      workspaceTarget === 'user' ? null : workspaceTarget,
+      trimmed,
+      installScope,
+      forceInstall,
+    )
+    setPreviewing(false)
+    if (read === null) setPreviewError(error)
+    else setPreview(read)
+  }
+
   async function submitInstall(): Promise<void> {
     const trimmed = source.trim()
     if (trimmed === '') {
@@ -179,7 +237,7 @@ export function PluginListView({
       return
     }
     setSourceError('')
-    const error = await actions.installSource(trimmed, installScope)
+    const error = await actions.installSource(trimmed, installScope, forceInstall)
     // The installed row is the answer, not the path that produced it: once the engine accepted the
     // source, the form closes and forgets it, the way the reference client's add flow returns to the list. A
     // refusal stays in the field so it can be corrected rather than retyped.
@@ -190,12 +248,11 @@ export function PluginListView({
   }
 
   /**
-   * Choose a package and read it before installing it.
+   * Choose a package and read it.
    *
-   * The read is the confirm step: the host unpacks the archive into a throwaway directory, applies
-   * the same guards an import does, and answers with what the manifest declares. Nothing is
-   * installed until the reader presses install on that answer, so a package that declares pages or
-   * extension modules is seen before it lands.
+   * The read is a preview, not a gate: the package installs when the install button is pressed
+   * whether or not the preview was taken, so the card informs the choice instead of standing in
+   * front of it.
    */
   async function pickPackage(): Promise<void> {
     const chosen = await choosePluginPackage(copy.choosePackageTitle)
@@ -211,7 +268,7 @@ export function PluginListView({
   }
 
   async function submitPackage(): Promise<void> {
-    if (packagePath === '' || inspection === null) return
+    if (packagePath === '') return
     const error = await actions.installPackage(packagePath, installScope)
     if (error !== null) return
     setPackagePath('')
@@ -331,6 +388,16 @@ export function PluginListView({
             )}
             {copy.reloadAction}
           </Button>
+          <Select value={autoUpdate} onValueChange={(next) => void changeAutoUpdate(next)}>
+            <SelectTrigger aria-label={copy.autoUpdateLabel}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">{copy.autoUpdateValues.off}</SelectItem>
+              <SelectItem value="notify">{copy.autoUpdateValues.notify}</SelectItem>
+              <SelectItem value="auto">{copy.autoUpdateValues.auto}</SelectItem>
+            </SelectContent>
+          </Select>
           <AddButton
             open={installOpen}
             label={copy.addAction}
@@ -369,22 +436,61 @@ export function PluginListView({
               </Tabs>
 
               {route === 'source' ? (
-                <SettingsField label={copy.installLabel} hint={copy.installHint}>
-                  <Input
-                    value={source}
-                    onChange={(next) => {
-                      setSource(next)
-                      setSourceError('')
-                    }}
-                    placeholder={copy.installPlaceholder}
-                    aria-label={copy.installLabel}
-                    error={sourceError === '' ? undefined : sourceError}
-                    reserveErrorLine
-                    autoComplete="off"
-                    spellCheck={false}
-                    classNames={{ field: 'h-9 rounded-lg', input: 'text-sm' }}
-                  />
-                </SettingsField>
+                <div className="flex flex-col gap-3">
+                  <SettingsField label={copy.installLabel} hint={copy.installHint}>
+                    <Input
+                      value={source}
+                      onChange={(next) => {
+                        setSource(next)
+                        setSourceError('')
+                        setPreview(null)
+                        setPreviewError(null)
+                      }}
+                      placeholder={copy.installPlaceholder}
+                      aria-label={copy.installLabel}
+                      error={sourceError === '' ? undefined : sourceError}
+                      reserveErrorLine
+                      autoComplete="off"
+                      spellCheck={false}
+                      classNames={{ field: 'h-9 rounded-lg', input: 'text-sm' }}
+                    />
+                  </SettingsField>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Switch
+                      checked={forceInstall}
+                      ariaLabel={copy.forceInstallLabel}
+                      label={copy.forceInstallLabel}
+                      onCheckedChange={setForceInstall}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy || previewing}
+                      onClick={() => void previewInstall()}
+                    >
+                      {previewing ? copy.previewing : copy.previewAction}
+                    </Button>
+                  </div>
+                  {preview === null ? null : (
+                    <p className="text-[13px] leading-[19px] text-muted-foreground" role="status">
+                      {copy.previewText(
+                        preview.kind,
+                        preview.name,
+                        preview.version ?? '',
+                        preview.scope,
+                        preview.features === null ? copy.previewAllFeatures : preview.features.join(', '),
+                      )}
+                    </p>
+                  )}
+                  {previewError === null ? null : (
+                    <SettingsNotice variant="destructive" title={copy.installTitle}>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <SettingsBadge>{previewError.code}</SettingsBadge>
+                        <span className="min-w-0">{previewError.message}</span>
+                      </span>
+                    </SettingsNotice>
+                  )}
+                </div>
               ) : route === 'file' ? (
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -569,7 +675,7 @@ export function PluginListView({
                   disabled={
                     installing
                     || scaffolding
-                    || (route === 'file' && inspection === null)
+                    || (route === 'file' && packagePath === '')
                     || (route === 'template' && templateDir === '')
                   }
                   onClick={
@@ -688,7 +794,6 @@ function PluginRowItem({
   onToggle: () => void
 }) {
   const row = entry.row
-  const needsConsent = row.consent.required && !entry.granted
   const version = formatPluginVersion(row, entry.update)
   const marketplaceSource = installedPluginSource(row)
   /** No engine handle means no write can name this installation; the switch says so instead. */
@@ -759,9 +864,7 @@ function PluginRowItem({
                   ? copy.noInstallHandleHint
                   : row.enabled
                     ? copy.toggleOff(entry.name)
-                    : needsConsent
-                      ? copy.toggleConfirmOn(entry.name)
-                      : copy.toggleOn(entry.name)
+                    : copy.toggleOn(entry.name)
             }
           />
         </span>

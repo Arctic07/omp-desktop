@@ -605,6 +605,7 @@ async fn install_first(
         project_key,
         def.install_id,
         Some(BUILTIN_SCOPE),
+        false,
     )
     .await?;
     if enabled_at(&installed.plugins, def) {

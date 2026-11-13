@@ -121,6 +121,11 @@ const ID_MAX_CHARS: usize = 256;
 /// frame, so this is the same rule applied before the runtime is asked - the two sides have to
 /// refuse the same writes, and a key past the bound is one no settings page could show.
 const KEY_MAX_CHARS: usize = 128;
+
+/// Ceiling on one `disabledExtensions` id, mirroring the host's own bound
+/// (`host/src/constants.ts` `EXTENSION_ID_MAX`).
+const EXTENSION_ID_MAX_CHARS: usize = 512;
+
 /// Ceiling on one plugin setting's text value, secret or not, mirroring the host's own bound
 /// (`host/src/constants.ts` `PLUGIN_SETTING_TEXT_MAX`): the host refuses a longer string, and a
 /// value it would refuse must not travel as if it could be stored.
@@ -475,6 +480,19 @@ pub(crate) fn consent_block(
         ));
     }
     Ok(())
+}
+
+/// One `omp.features` key, bounded the way a setting key is: the engine's manifest vocabulary, not
+/// free text.
+pub(crate) fn sanitize_feature(value: &str) -> IpcResult<String> {
+    sanitize_token(value, "plugin feature name", KEY_MAX_CHARS)
+}
+
+/// One `disabledExtensions` id: the engine's own token, bounded the way its longest shape is
+/// (`extension-module:<file>`). The host re-checks the prefix against the discovered set; this
+/// layer refuses an empty, oversized or control-carrying argument before it becomes a frame.
+pub(crate) fn sanitize_extension_id(value: &str) -> IpcResult<String> {
+    sanitize_token(value, "extension id", EXTENSION_ID_MAX_CHARS)
 }
 
 /// One plugin setting's key, checked against the host's own length ceiling before a call that names

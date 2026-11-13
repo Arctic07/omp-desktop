@@ -224,6 +224,7 @@ fn settings_set(
         &install.plugin_id,
         key,
         value,
+        false,
     )) {
         Ok(written) => match serde_json::to_value(&written) {
             Ok(value) => {

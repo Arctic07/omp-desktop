@@ -62,6 +62,15 @@ export async function bootServices(paths: HostPaths, sdk: SdkBundle): Promise<{ 
   // registry so the first session of this process already runs under them.
   await convergeProductDefaults({ settings })
 
+  // The engine's own starting policy, exactly as `omp` runs it: `off` does nothing, `notify` writes
+  // availability to the debug log, `auto` upgrades. Detached and error-swallowing in the engine, so
+  // this never delays the first session.
+  sdk.scheduleMarketplaceAutoUpdate({
+    autoUpdate: sdk.cfgMarketplaceAutoUpdate.get(settings),
+    resolveActiveProjectRegistryPath: sdk.resolveActiveProjectRegistryPath,
+    clearPluginRootsCache: sdk.clearPluginRootsAndCaches,
+  })
+
   const registryStart = performance.now()
   const registry = new sdk.ModelRegistry(auth, path.join(paths.agentDir, 'models.yml'), { settings })
   await registry.hydrateCredentialScopedModelCaches()

@@ -19,6 +19,7 @@ import {
 import type {
   EngineMarketplacesView,
   EnginePluginCommandRunResult,
+  EnginePluginDoctorView,
   EnginePluginEngineInfo,
   EnginePluginReloadResult,
   EnginePluginRendererCallResult,
@@ -28,8 +29,10 @@ import type {
   InspectPackageView,
   JsonObject,
   MarketplacePluginsView,
+  PluginInstallPreview,
   PluginGrantsView,
   PluginNoticeEvent,
+  PluginAutoUpdateView,
   PluginProcessesView,
   PluginPromptEvent,
   PluginScaffoldView,
@@ -60,8 +63,19 @@ export function installPluginSource(
   workspaceId: number | null,
   source: string,
   scope: string,
+  force = false,
 ): Promise<PluginsView> {
-  return call(COMMANDS.enginePluginInstall, { workspaceId, source, scope })
+  return call(COMMANDS.enginePluginInstall, { workspaceId, source, scope, force })
+}
+
+/** What `installPluginSource` would install, without installing it (`omp plugin install --dry-run`). */
+export function previewPluginInstallSource(
+  workspaceId: number | null,
+  source: string,
+  scope: string,
+  force = false,
+): Promise<PluginInstallPreview> {
+  return call(COMMANDS.enginePluginInstallPreview, { workspaceId, source, scope, force })
 }
 
 /**
@@ -145,6 +159,17 @@ export function setPluginEnabled(
   return call(COMMANDS.enginePluginSetEnabled, { workspaceId, id: targetId, enabled, scope })
 }
 
+/** Turns one optional `omp.features` entry on or off; the id is the same engine handle. */
+export function setPluginFeature(
+  workspaceId: number | null,
+  targetId: string,
+  feature: string,
+  enabled: boolean,
+  scope: string,
+): Promise<PluginsView> {
+  return call(COMMANDS.enginePluginFeatureSet, { workspaceId, id: targetId, feature, enabled, scope })
+}
+
 /** Upgrades one installation by its engine handle, or every one when the id is null. */
 export function upgradePlugin(
   workspaceId: number | null,
@@ -181,6 +206,19 @@ export function checkPluginUpdates(
   workspaceId: number | null,
 ): Promise<EnginePluginUpdatesView> {
   return call(COMMANDS.enginePluginCheckUpdates, { workspaceId })
+}
+
+/** Runs the engine's plugin health check; `fix` asks it to repair what it can. */
+export function pluginDoctor(
+  workspaceId: number | null,
+  fix: boolean,
+): Promise<EnginePluginDoctorView> {
+  return call(COMMANDS.enginePluginDoctor, { workspaceId, fix })
+}
+
+/** Reads or writes the engine's marketplace auto-update policy; `value` absent is a read. */
+export function pluginAutoUpdate(value?: string): Promise<PluginAutoUpdateView> {
+  return call(COMMANDS.enginePluginAutoUpdate, { value })
 }
 
 /** The engine build this host runs, and the external tools it found on this machine. */
@@ -292,17 +330,19 @@ export function setPluginConfigValue(
   id: string,
   key: string,
   value: JsonObject | string | number | boolean | null,
+  local = false,
 ): Promise<EnginePluginSettings> {
-  return call(COMMANDS.enginePluginConfigSet, { workspaceId, id, key, value })
+  return call(COMMANDS.enginePluginConfigSet, { workspaceId, id, key, value, local })
 }
 
-/** Resets one key, or every key when `key` is null. */
+/** Resets one key, or every key when `key` is null; `local` clears the project override instead. */
 export function resetPluginConfig(
   workspaceId: number | null,
   id: string,
   key: string | null,
+  local = false,
 ): Promise<EnginePluginSettings> {
-  return call(COMMANDS.enginePluginConfigReset, { workspaceId, id, key })
+  return call(COMMANDS.enginePluginConfigReset, { workspaceId, id, key, local })
 }
 
 /* ------------------------------------------------------------------- pages */

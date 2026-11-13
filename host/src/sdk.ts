@@ -40,6 +40,11 @@ import type { MCPServer as EngineMcpServer } from '@oh-my-pi/pi-coding-agent/cap
 import type { MCPServerConfig as EngineMcpConfig } from '@oh-my-pi/pi-coding-agent/mcp'
 import type { loadSkillsFromDir, Skill, SkillWarning } from '@oh-my-pi/pi-coding-agent/extensibility/skills'
 import type { classifyInstallTarget } from '@oh-my-pi/pi-coding-agent/cli/classify-install-target'
+import type { cfgDisabledExtensions, cfgExtensions } from '@oh-my-pi/pi-coding-agent/extensibility/settings'
+import type { loadAllExtensions } from '@oh-my-pi/pi-coding-agent/modes/components/extensions/state-manager'
+import type { EffectiveExtensionRoots } from '@oh-my-pi/pi-coding-agent/capability/types'
+import type { cfgMarketplaceAutoUpdate } from '@oh-my-pi/pi-coding-agent/modes/settings'
+import type { scheduleMarketplaceAutoUpdate } from '@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace-auto-update'
 import type { PluginManager, validateSetting } from '@oh-my-pi/pi-coding-agent/extensibility/plugins/manager'
 import type {
   InstalledPluginEntry,
@@ -259,6 +264,19 @@ export interface SdkBundle {
    * `omp plugin install` and the desktop's install button resolve the same way.
    */
   readonly classifyInstallTarget: typeof classifyInstallTarget
+  /**
+   * The engine's `/extensions` dashboard: its own discovery, and the setting its toggles write.
+   *
+   * `loadAllExtensions` resolves every provider gate and the id `disabledExtensions` stores, so the
+   * page draws the engine's list rather than a second discovery with its own ids.
+   */
+  readonly loadAllExtensions: typeof loadAllExtensions
+  readonly cfgDisabledExtensions: typeof cfgDisabledExtensions
+  readonly cfgExtensions: typeof cfgExtensions
+  readonly extensionRoots: (configured: readonly string[]) => EffectiveExtensionRoots
+  /** `marketplace.autoUpdate`, and the engine's own startup policy that reads it. */
+  readonly cfgMarketplaceAutoUpdate: typeof cfgMarketplaceAutoUpdate
+  readonly scheduleMarketplaceAutoUpdate: typeof scheduleMarketplaceAutoUpdate
   /** `name@marketplace` parsing, for the two places a plugin id's shape decides which manager acts. */
   readonly parsePluginId: typeof parsePluginId
   /**
@@ -570,6 +588,12 @@ export async function loadSdk(): Promise<SdkBundle> {
   const plugins = await import('@oh-my-pi/pi-coding-agent/extensibility/plugins/manager')
   const marketplaces = await import('@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace')
   const installTarget = await import('@oh-my-pi/pi-coding-agent/cli/classify-install-target')
+  // The `/extensions` dashboard and the marketplace's startup policy: engine settings registers
+  // and the engine's own discovery, loaded here for the same reason as the managers above.
+  const extensionSettings = await import('@oh-my-pi/pi-coding-agent/extensibility/settings')
+  const extensionDashboard = await import('@oh-my-pi/pi-coding-agent/modes/components/extensions/state-manager')
+  const modeSettings = await import('@oh-my-pi/pi-coding-agent/modes/settings')
+  const marketplaceAutoUpdate = await import('@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace-auto-update')
   const capability = await import('@oh-my-pi/pi-coding-agent/capability')
   const mcpCapability = await import('@oh-my-pi/pi-coding-agent/capability/mcp')
   const memoryBackend = await import('@oh-my-pi/pi-coding-agent/memory-backend')
@@ -656,6 +680,14 @@ export async function loadSdk(): Promise<SdkBundle> {
     validatePluginSetting: plugins.validateSetting,
     MarketplaceManager: marketplaces.MarketplaceManager,
     classifyInstallTarget: installTarget.classifyInstallTarget,
+    loadAllExtensions: extensionDashboard.loadAllExtensions,
+    cfgDisabledExtensions: extensionSettings.cfgDisabledExtensions,
+    cfgExtensions: extensionSettings.cfgExtensions,
+    // The roots shape the engine's own `/extensions` builds for a merge of the configured paths:
+    // `explicit: []` and `configuredLevel: 'user'` are its rule, not a second table here.
+    extensionRoots: configured => ({ explicit: [], mode: 'merge', configured, configuredLevel: 'user' }),
+    cfgMarketplaceAutoUpdate: modeSettings.cfgMarketplaceAutoUpdate,
+    scheduleMarketplaceAutoUpdate: marketplaceAutoUpdate.scheduleMarketplaceAutoUpdate,
     parsePluginId: marketplaces.parsePluginId,
     resolveOrDefaultProjectRegistryPath: discoveryHelpers.resolveOrDefaultProjectRegistryPath,
     pluginPaths: {

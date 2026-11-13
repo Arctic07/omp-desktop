@@ -43,7 +43,7 @@ export function MarketEntryGrid({
   /** The scope this page writes: the button says where the installation lands. */
   installLabel: string
   onInstall: (entry: MarketplacePluginRow) => void
-  onConsent: (row: PluginRow, name: string) => void
+  onConsent: (row: PluginRow) => void
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -128,7 +128,7 @@ export function MarketEntryGrid({
                       size="sm"
                       variant="secondary"
                       disabled={busy}
-                      onClick={() => onConsent(installedRow, view.name)}
+                      onClick={() => onConsent(installedRow)}
                     >
                       {copy.consentRequiredAction}
                     </Button>

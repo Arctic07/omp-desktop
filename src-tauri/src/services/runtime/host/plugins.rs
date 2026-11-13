@@ -27,9 +27,11 @@
 use serde_json::{json, Value};
 
 use crate::errors::IpcResult;
+use crate::models::extensions::ExtensionsView;
 use crate::models::plugins::{
     EngineMarketplacePluginsView, EngineMarketplacesView, EnginePluginEngineInfo,
     EnginePluginReloadResult, EnginePluginSettings, EnginePluginUpdatesView, EnginePluginsView,
+    PluginAutoUpdateView, PluginDoctorView, PluginInstallPreview,
 };
 use crate::services::plugins::map_host_error;
 
@@ -58,6 +60,7 @@ impl HostRuntime {
         cwd: Option<&str>,
         source: &str,
         scope: Option<&str>,
+        force: bool,
     ) -> IpcResult<EnginePluginsView> {
         self.ensure_running().await?;
         let mut request = command_frame("plugins_install", cwd);
@@ -65,8 +68,35 @@ impl HostRuntime {
         if let Some(scope) = scope {
             request["scope"] = json!(scope);
         }
+        if force {
+            request["force"] = json!(true);
+        }
         let data = self.call_plugin(request, INSTALL_TIMEOUT_MS).await?;
         decode(data, "plugin list")
+    }
+
+    /// What `plugins_install` would do, without doing it: the engine's `--dry-run`.
+    ///
+    /// The answer names the package, the version the engine could resolve without fetching, and
+    /// the features the spec selects; nothing is written.
+    pub(crate) async fn plugin_install_preview(
+        &self,
+        cwd: Option<&str>,
+        source: &str,
+        scope: Option<&str>,
+        force: bool,
+    ) -> IpcResult<PluginInstallPreview> {
+        self.ensure_running().await?;
+        let mut request = command_frame("plugins_install_preview", cwd);
+        request["source"] = json!(source);
+        if let Some(scope) = scope {
+            request["scope"] = json!(scope);
+        }
+        if force {
+            request["force"] = json!(true);
+        }
+        let data = self.call_plugin(request, INSTALL_TIMEOUT_MS).await?;
+        decode(data, "plugin install preview")
     }
 
     /// Removes one plugin and answers with the list as it stands after the removal.
@@ -106,6 +136,32 @@ impl HostRuntime {
         self.ensure_running().await?;
         let mut request = command_frame("plugins_set_enabled", cwd);
         request["targetId"] = json!(id);
+        request["enabled"] = json!(enabled);
+        if let Some(scope) = scope {
+            request["scope"] = json!(scope);
+        }
+        let data = self.call_plugin(request, CAPABILITY_TIMEOUT_MS).await?;
+        decode(data, "plugin list")
+    }
+
+    /// Turns one optional feature of an installation on or off, and answers with the list as it
+    /// stands after the write.
+    ///
+    /// What the list of enabled features means is the engine's own rule (`enabledFeatures === null`
+    /// enables the truthy defaults), so the host reads that resolution, applies the one change and
+    /// writes the resulting list back. The id travels as `targetId` (see the module docs).
+    pub(crate) async fn plugin_feature_set(
+        &self,
+        cwd: Option<&str>,
+        id: &str,
+        scope: Option<&str>,
+        feature: &str,
+        enabled: bool,
+    ) -> IpcResult<EnginePluginsView> {
+        self.ensure_running().await?;
+        let mut request = command_frame("plugins_features_set", cwd);
+        request["targetId"] = json!(id);
+        request["feature"] = json!(feature);
         request["enabled"] = json!(enabled);
         if let Some(scope) = scope {
             request["scope"] = json!(scope);
@@ -250,12 +306,16 @@ impl HostRuntime {
         id: &str,
         key: &str,
         value: Value,
+        local: bool,
     ) -> IpcResult<EnginePluginSettings> {
         self.ensure_running().await?;
         let mut request = command_frame("plugins_config_set", cwd);
         request["targetId"] = json!(id);
         request["key"] = json!(key);
         request["value"] = value;
+        if local {
+            request["local"] = json!(true);
+        }
         let data = self.call_plugin(request, CAPABILITY_TIMEOUT_MS).await?;
         decode(data, "plugin settings")
     }
@@ -271,12 +331,16 @@ impl HostRuntime {
         cwd: Option<&str>,
         id: &str,
         key: Option<&str>,
+        local: bool,
     ) -> IpcResult<EnginePluginSettings> {
         self.ensure_running().await?;
         let mut request = command_frame("plugins_config_reset", cwd);
         request["targetId"] = json!(id);
         if let Some(key) = key {
             request["key"] = json!(key);
+        }
+        if local {
+            request["local"] = json!(true);
         }
         let data = self.call_plugin(request, CAPABILITY_TIMEOUT_MS).await?;
         decode(data, "plugin settings")
@@ -311,6 +375,67 @@ impl HostRuntime {
             .call_plugin(command_frame("plugins_engine", None), CAPABILITY_TIMEOUT_MS)
             .await?;
         decode(data, "plugin engine info")
+    }
+
+    /// The engine's marketplace auto-update policy, read or written.
+    ///
+    /// The setting is global (`marketplace.autoUpdate`), so this frame takes no workspace and no
+    /// plugin; `mode` absent is a read.
+    pub(crate) async fn plugin_auto_update(
+        &self,
+        mode: Option<&str>,
+    ) -> IpcResult<PluginAutoUpdateView> {
+        self.ensure_running().await?;
+        let mut request = command_frame("plugins_auto_update", None);
+        if let Some(mode) = mode {
+            request["value"] = json!(mode);
+        }
+        let data = self.call_plugin(request, CAPABILITY_TIMEOUT_MS).await?;
+        decode(data, "plugin auto update")
+    }
+
+    /// The engine's own health check over the plugins directory and every recorded installation.
+    ///
+    /// `fix` asks the engine to repair what it can; the answer is its own rows either way.
+    pub(crate) async fn plugin_doctor(
+        &self,
+        cwd: Option<&str>,
+        fix: bool,
+    ) -> IpcResult<PluginDoctorView> {
+        self.ensure_running().await?;
+        let mut request = command_frame("plugins_doctor", cwd);
+        request["fix"] = json!(fix);
+        let data = self.call_plugin(request, INSTALL_TIMEOUT_MS).await?;
+        decode(data, "plugin doctor")
+    }
+
+    /// The engine's extensions dashboard: every item a session can toggle, the ids already
+    /// disabled, and whether the host's own page bound cut the list.
+    pub(crate) async fn extensions(&self, cwd: Option<&str>) -> IpcResult<ExtensionsView> {
+        self.ensure_running().await?;
+        let data = self
+            .call_plugin(command_frame("extensions_list", cwd), CAPABILITY_TIMEOUT_MS)
+            .await?;
+        decode(data, "extension list")
+    }
+
+    /// Enables or disables one extension item, answered with the dashboard as it stands after the
+    /// write. The id is the engine's own `disabledExtensions` token, checked by the host.
+    pub(crate) async fn extension_set(
+        &self,
+        cwd: Option<&str>,
+        id: &str,
+        enabled: bool,
+    ) -> IpcResult<ExtensionsView> {
+        self.ensure_running().await?;
+        let mut request = command_frame("extensions_set", cwd);
+        // `targetId`, not `id`: the request envelope's `id` is the correlation key this process
+        // writes itself before encoding (`host/ops.rs::call_inner`), so an id sent under it would be
+        // overwritten with `h7` and the host would refuse every write (ruling C14).
+        request["targetId"] = json!(id);
+        request["enabled"] = json!(enabled);
+        let data = self.call_plugin(request, CAPABILITY_TIMEOUT_MS).await?;
+        decode(data, "extension list")
     }
 
     /// One plugin command: the frame goes out, and a failure comes back restated in this

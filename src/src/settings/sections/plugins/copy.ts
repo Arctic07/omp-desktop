@@ -31,6 +31,8 @@ export interface PluginsCopy extends ProcessCopy {
   installedEmptyDescription: string
   refresh: string
   updateCheckAction: string
+  autoUpdateLabel: string
+  autoUpdateValues: Readonly<Record<string, string>>
   updatesFound: (count: number) => string
   upgradeAllAction: string
   reloadAction: string
@@ -59,7 +61,6 @@ export interface PluginsCopy extends ProcessCopy {
 
   toggleOn: (name: string) => string
   toggleOff: (name: string) => string
-  toggleConfirmOn: (name: string) => string
   updateAction: string
   uninstallAction: string
   consentRevoke: string
@@ -67,20 +68,7 @@ export interface PluginsCopy extends ProcessCopy {
   closeAction: string
   backAction: string
 
-  consentTitle: (name: string) => string
-  consentBody: string
-  consentExtensionNote: string
-  consentReasonsTitle: string
   consentReasonLabels: Readonly<Record<string, string>>
-  consentConfirm: string
-  consentFailed: string
-
-  uninstallConfirmTitle: (name: string) => string
-  uninstallConfirmBody: string
-  uninstallConfirmDataTitle: string
-  uninstallConfirmSettings: (count: number) => string
-  uninstallConfirmCache: string
-  uninstallConfirmAction: string
 
   installTitle: string
   installLabel: string
@@ -106,6 +94,13 @@ export interface PluginsCopy extends ProcessCopy {
   sha256Hint: string
   sha256Shape: string
   installModeTemplate: string
+  forceInstallLabel: string
+  forceInstallHint: string
+  previewAction: string
+  previewing: string
+  /** `features` is the selected set, already joined, or the all-features wording. */
+  previewText: (kind: string, name: string, version: string, scope: string, features: string) => string
+  previewAllFeatures: string
   templateLabel: string
   templateHint: string
   /** One label per authoring template this build ships (`api/plugins.ts::PLUGIN_TEMPLATES`). */
@@ -126,8 +121,11 @@ export interface PluginsCopy extends ProcessCopy {
 
   /** The update that moves a plugin to another marketplace; its card is the destructive one. */
   switchSourceAction: string
+  /** The npm/git install's own action: re-resolve its recorded source (`PluginManager.upgrade`). */
+  npmUpgradeAction: string
+  /** The action that upgrades a plugin installed at both scopes in one call. */
+  upgradeBothAction: string
   switchSourceBadge: string
-  switchSourceTitle: (name: string) => string
   /** `marketplace` and `current` are marketplace names, `version` the version being installed. */
   switchSourceBody: (marketplace: string, version: string, current: string) => string
   /**
@@ -138,12 +136,6 @@ export interface PluginsCopy extends ProcessCopy {
    * string there read "roll back to ." (2026-10-27).
    */
   switchSourcePreviousSource: string
-  switchSourceGrantNote: string
-  switchSourceContinue: string
-  switchSourceConfirmTitle: (name: string) => string
-  switchSourceConfirmBody: (marketplace: string, version: string, current: string) => string
-  switchSourceConfirmHint: string
-  switchSourceConfirmAction: string
   switchedSource: (name: string, marketplace: string, version: string) => string
   switchRolledBackTitle: string
   switchRolledBack: (marketplace: string) => string
@@ -179,6 +171,10 @@ export interface PluginsCopy extends ProcessCopy {
     dapConfig: string
   }
   capabilitiesNone: string
+  /** `omp.features`: the manifest's optional parts, each its own switch. */
+  featuresTitle: string
+  featureDefaultBadge: string
+  featureToggle: (name: string, enabled: boolean) => string
 
   permissionsTitle: string
   /** The disclosure on the permissions block: it starts closed, and the count is the row's own. */
@@ -205,9 +201,17 @@ export interface PluginsCopy extends ProcessCopy {
   desktopReasonLabel: string
   desktopErrorLabel: string
   diagnosticsNone: string
+  doctorTitle: string
+  doctorHint: string
+  doctorRun: string
+  doctorFix: string
+  doctorFailed: string
+  doctorFixed: string
 
   settingsTitle: string
   settingsHint: string
+  settingsLocalLabel: string
+  settingsLocalHint: string
   settingsReadOnlyHint: string
   settingsNone: string
   settingDefaultBadge: string
@@ -256,6 +260,8 @@ export const COPY: Localized<PluginsCopy> = {
     installedEmptyDescription: 'Browse and install plugins to add MCP servers, skills and more.',
     refresh: 'Refresh',
     updateCheckAction: 'Check for updates',
+    autoUpdateLabel: 'Marketplace auto-update at startup',
+    autoUpdateValues: { off: 'Automatic updates off', notify: 'Check only', auto: 'Check and upgrade' },
     updatesFound: (count) =>
       count === 1 ? '1 plugin has an update.' : `${count} plugins have updates.`,
     upgradeAllAction: 'Update all',
@@ -273,8 +279,8 @@ export const COPY: Localized<PluginsCopy> = {
     searchEmpty: 'No plugins match your search',
 
     updateBadge: 'Update available',
-    consentRequiredAction: 'Confirm',
-    consentGrantedBadge: 'Confirmed',
+    consentRequiredAction: 'Enable and record permission',
+    consentGrantedBadge: 'Permission recorded',
     shadowedBadge: 'Shadowed',
     builtinBadge: 'Built-in',
     builtinHint:
@@ -299,20 +305,13 @@ export const COPY: Localized<PluginsCopy> = {
 
     toggleOn: (name) => `Enable ${name}`,
     toggleOff: (name) => `Disable ${name}`,
-    toggleConfirmOn: (name) => `Confirm and enable ${name}`,
     updateAction: 'Update',
     uninstallAction: 'Uninstall',
-    consentRevoke: 'Withdraw confirmation',
+    consentRevoke: 'Withdraw permission record',
     cancelAction: 'Cancel',
     closeAction: 'Close',
     backAction: 'Back',
 
-    consentTitle: (name) => `Enable ${name}?`,
-    consentBody:
-      'This plugin brings code that runs inside the agent process, with the same permissions the agent has. There is no sandbox around it: enabling it lets the parts listed below run, so continue only if you trust where this plugin came from.',
-    consentExtensionNote:
-      'It ships extension modules, which the host loads into its own process — the highest-risk part of this plugin.',
-    consentReasonsTitle: 'What it brings',
     consentReasonLabels: {
       'extension-modules': 'Extension modules (`omp.extensions`) that load into the host process',
       'base-tools': 'Base tools (`omp.tools`) that run in the agent process',
@@ -329,20 +328,6 @@ export const COPY: Localized<PluginsCopy> = {
       'manifest-unreadable':
         'Its manifest could not be read, so it is treated as if it may carry executable code',
     },
-    consentConfirm: 'Confirm and enable',
-    consentFailed: 'The confirmation could not be recorded',
-
-    uninstallConfirmTitle: (name) => `Uninstall ${name}?`,
-    uninstallConfirmBody: 'The plugin’s files and the data listed below are removed.',
-    uninstallConfirmDataTitle: 'What is removed',
-    uninstallConfirmSettings: (count) => {
-      if (count === 0) {
-        return 'Plugin settings (none stored)'
-      }
-      return count === 1 ? 'Plugin settings (1 stored key)' : `Plugin settings (${count} stored keys)`
-    },
-    uninstallConfirmCache: 'Plugin cache and its desktop panel data.',
-    uninstallConfirmAction: 'Uninstall',
 
     installTitle: 'Install from a source',
     installLabel: 'Source',
@@ -371,6 +356,13 @@ export const COPY: Localized<PluginsCopy> = {
     sha256Hint: 'Required for a URL: it is the only proof of what was downloaded.',
     sha256Shape: 'A SHA-256 is 64 lowercase hexadecimal characters.',
     installModeTemplate: 'Template',
+    forceInstallLabel: 'Reinstall if already installed',
+    forceInstallHint: 'Passes the engine’s own `--force`; a marketplace entry is reinstalled even at the same version.',
+    previewAction: 'Preview',
+    previewing: 'Reading what would be installed…',
+    previewText: (kind, name, version, scope, features) =>
+      `${kind} · ${name}${version === '' ? '' : ` ${version}`} · ${scope}${features === '' ? '' : ` · features: ${features}`}`,
+    previewAllFeatures: 'all declared features',
     templateLabel: 'Template',
     templateHint:
       'Copies a starting tree into a folder you pick. Nothing is installed: edit the copy, then install from that folder.',
@@ -395,20 +387,12 @@ export const COPY: Localized<PluginsCopy> = {
     upgradedAll: 'Updated every plugin that had a pending update.',
 
     switchSourceAction: 'Switch source',
+    npmUpgradeAction: 'Upgrade from source',
+    upgradeBothAction: 'Upgrade both scopes',
     switchSourceBadge: 'Source switch',
-    switchSourceTitle: (name) => `Change where ${name} is installed from`,
     switchSourceBody: (marketplace, version, current) =>
       `The current installation is uninstalled first, then ${version} from ${marketplace} is installed. If that fails, this app tries to roll back to ${current}. The plugin is unavailable while this runs.`,
     switchSourcePreviousSource: 'the previous installation',
-    switchSourceGrantNote:
-      'Your recorded confirmation stays with the plugin itself, not with the source; it is asked again only if the new version widens its permissions.',
-    switchSourceContinue: 'Continue',
-    switchSourceConfirmTitle: (name) => `Confirm the source switch for ${name}`,
-    switchSourceConfirmBody: (marketplace, version, current) =>
-      `One more confirmation: the current installation is uninstalled first, then ${version} from ${marketplace} is installed. If that fails, this app tries to roll back to ${current}.`,
-    switchSourceConfirmHint:
-      'If the install fails and the rollback fails too, the plugin stays uninstalled: the recorded confirmation is kept and it can be installed again.',
-    switchSourceConfirmAction: 'Uninstall and install',
     switchedSource: (name, marketplace, version) =>
       `${name} now comes from ${marketplace}, at ${version}.`,
     switchRolledBackTitle: 'The source switch did not go through.',
@@ -450,6 +434,9 @@ export const COPY: Localized<PluginsCopy> = {
       dapConfig: 'Supplies a debug-adapter configuration the engine starts a process for',
     },
     capabilitiesNone: 'This plugin brings no tools, hooks, skills, commands, agents, rules or prompts.',
+    featuresTitle: 'Optional features',
+    featureDefaultBadge: 'On by default',
+    featureToggle: (name, enabled) => (enabled ? `Disable ${name}` : `Enable ${name}`),
 
     permissionsTitle: 'Permissions',
     permissionsShow: (count) => `Show the ${count} permission${count === 1 ? '' : 's'}`,
@@ -555,10 +542,19 @@ export const COPY: Localized<PluginsCopy> = {
     desktopReasonLabel: 'Reason',
     desktopErrorLabel: 'Manifest error',
     diagnosticsNone: 'Nothing to report.',
+    doctorTitle: 'Health check',
+    doctorHint: 'The engine’s own `omp plugin doctor`: files, versions and registration. “Fix” lets it repair what it can.',
+    doctorRun: 'Run check',
+    doctorFix: 'Run and fix',
+    doctorFailed: 'The check could not run.',
+    doctorFixed: 'fixed',
 
     settingsTitle: 'Plugin settings',
     settingsHint:
       'Written through the engine’s own settings store, so a value lands where the engine reads it. Nothing here is shown as saved until the engine answers with the value it now holds.',
+    settingsLocalLabel: 'Store in this project',
+    settingsLocalHint:
+      'Writes this workspace’s `.omp/plugin-overrides.json` instead of the user-wide store; project values win over user values for the engine.',
     settingsReadOnlyHint: 'The plugin is disabled. Its settings are read-only; enable it to make changes.',
     settingsNone: 'This plugin declares no setting.',
     settingDefaultBadge: 'Default',
@@ -608,6 +604,8 @@ export const COPY: Localized<PluginsCopy> = {
     installedEmptyDescription: '浏览并安装插件，以添加 MCP、技能及更多能力。',
     refresh: '刷新',
     updateCheckAction: '检查更新',
+    autoUpdateLabel: '启动时市场自动更新',
+    autoUpdateValues: { off: '不自动更新', notify: '只检查', auto: '检查并升级' },
     updatesFound: (count) => `有 ${count} 个插件可以更新。`,
     upgradeAllAction: '全部更新',
     reloadAction: '重载插件状态',
@@ -621,8 +619,8 @@ export const COPY: Localized<PluginsCopy> = {
     searchEmpty: '没有匹配的插件',
 
     updateBadge: '可更新',
-    consentRequiredAction: '点击确认',
-    consentGrantedBadge: '已确认',
+    consentRequiredAction: '启用并记录授权',
+    consentGrantedBadge: '已记录授权',
     shadowedBadge: '已被遮蔽',
     builtinBadge: '内置',
     builtinHint: '这个插件随应用一起提供：不能关闭或卸载，它带的技能随插件状态。',
@@ -645,19 +643,13 @@ export const COPY: Localized<PluginsCopy> = {
 
     toggleOn: (name) => `启用「${name}」`,
     toggleOff: (name) => `禁用「${name}」`,
-    toggleConfirmOn: (name) => `确认并启用「${name}」`,
     updateAction: '更新',
     uninstallAction: '卸载',
-    consentRevoke: '撤销确认',
+    consentRevoke: '撤销授权记录',
     cancelAction: '取消',
     closeAction: '关闭',
     backAction: '返回',
 
-    consentTitle: (name) => `启用「${name}」？`,
-    consentBody:
-      '该插件会带进在 agent 进程内运行的代码，权限与 agent 相同，没有沙箱：确认后会运行下面列出的部分。请只在信任该插件来源时继续。',
-    consentExtensionNote: '它带扩展模块，会被宿主直接装载进自己的进程——这是该插件风险最高的部分。',
-    consentReasonsTitle: '它带进来的东西',
     consentReasonLabels: {
       'extension-modules': '扩展模块（`omp.extensions`），装载进 host 进程',
       'base-tools': '基础工具（`omp.tools`），在 agent 进程中运行',
@@ -671,16 +663,6 @@ export const COPY: Localized<PluginsCopy> = {
       'renderer-module': '在你的窗口里画界面',
       'manifest-unreadable': '无法读取它的清单，因此按可能带可执行代码处理',
     },
-    consentConfirm: '确认并启用',
-    consentFailed: '确认未能记录',
-
-    uninstallConfirmTitle: (name) => `卸载「${name}」？`,
-    uninstallConfirmBody: '将删除该插件的文件，以及下面列出的数据。',
-    uninstallConfirmDataTitle: '会删除的数据',
-    uninstallConfirmSettings: (count) =>
-      count === 0 ? '插件设置（当前没有存储值）' : `插件设置（${count} 个已存的键）`,
-    uninstallConfirmCache: '插件缓存与它的桌面面板数据。',
-    uninstallConfirmAction: '卸载',
 
     installTitle: '从来源安装',
     installLabel: '来源',
@@ -708,6 +690,13 @@ export const COPY: Localized<PluginsCopy> = {
     sha256Hint: 'URL 来源必填：它是下载内容的唯一证明。',
     sha256Shape: 'SHA-256 是 64 位小写十六进制字符。',
     installModeTemplate: '模板',
+    forceInstallLabel: '已安装时强制重装',
+    forceInstallHint: '传给引擎自己的 `--force`；市场条目即使版本相同也会重装。',
+    previewAction: '预演',
+    previewing: '正在读取将要安装的内容…',
+    previewText: (kind, name, version, scope, features) =>
+      `${kind} · ${name}${version === '' ? '' : ` ${version}`} · ${scope}${features === '' ? '' : ` · 特性: ${features}`}`,
+    previewAllFeatures: '全部已声明特性',
     templateLabel: '模板',
     templateHint: '把一个起点目录复制到你选的文件夹。不会安装任何东西：改完再从该目录安装。',
     templateNames: {
@@ -731,20 +720,12 @@ export const COPY: Localized<PluginsCopy> = {
     upgradedAll: '所有有待更新版本的插件都已更新。',
 
     switchSourceAction: '换源更新',
+    npmUpgradeAction: '从来源升级',
+    upgradeBothAction: '两个作用域一起升级',
     switchSourceBadge: '换源',
-    switchSourceTitle: (name) => `更换「${name}」的安装来源`,
     switchSourceBody: (marketplace, version, current) =>
       `会先卸载当前安装，再安装 ${marketplace} 上的 ${version}；失败时尝试回滚到 ${current}。安装期间该插件不可用。`,
     switchSourcePreviousSource: '原来的安装',
-    switchSourceGrantNote:
-      '已记录的确认跟着插件本身，不跟着来源走；只有新版本权限变宽时才会重新确认。',
-    switchSourceContinue: '继续',
-    switchSourceConfirmTitle: (name) => `确认更换「${name}」的来源`,
-    switchSourceConfirmBody: (marketplace, version, current) =>
-      `再确认一次：会先卸载当前安装，再安装 ${marketplace} 上的 ${version}；失败时尝试回滚到 ${current}。`,
-    switchSourceConfirmHint:
-      '如果安装失败且回滚也失败，插件会留在已卸载状态：确认记录保留，可以重新安装。',
-    switchSourceConfirmAction: '卸载并安装',
     switchedSource: (name, marketplace, version) =>
       `「${name}」已换源：现在来自 ${marketplace} 的 ${version}。`,
     switchRolledBackTitle: '换源没有完成。',
@@ -782,6 +763,9 @@ export const COPY: Localized<PluginsCopy> = {
       dapConfig: '提供调试适配器配置，引擎据此启动进程',
     },
     capabilitiesNone: '该插件没有带任何工具、钩子、技能、命令、子代理、规则或提示词。',
+    featuresTitle: '可选功能',
+    featureDefaultBadge: '默认开启',
+    featureToggle: (name, enabled) => (enabled ? `关闭 ${name}` : `开启 ${name}`),
 
     permissionsTitle: '权限',
     permissionsShow: (count) => `展开这 ${count} 项权限`,
@@ -883,10 +867,19 @@ export const COPY: Localized<PluginsCopy> = {
     desktopReasonLabel: '原因',
     desktopErrorLabel: '清单错误',
     diagnosticsNone: '没有需要报告的内容。',
+    doctorTitle: '健康检查',
+    doctorHint: '引擎自己的 `omp plugin doctor`：检查文件、版本与登记状态；“修复”会尝试自动处理能修的问题。',
+    doctorRun: '运行检查',
+    doctorFix: '运行并修复',
+    doctorFailed: '检查没有跑起来。',
+    doctorFixed: '已修复',
 
     settingsTitle: '插件设置',
     settingsHint:
       '通过引擎自己的设置存储写入，值落在引擎读取的位置。引擎返回它当前持有的值之前，这里不会把任何内容显示成已保存。',
+    settingsLocalLabel: '只存到当前项目',
+    settingsLocalHint:
+      '写入当前工作区的 `.omp/plugin-overrides.json`，而不是用户级存储；引擎读取时项目值优先。',
     settingsReadOnlyHint: '插件当前已禁用，设置只读；启用后即可修改。',
     settingsNone: '该插件没有声明任何设置项。',
     settingDefaultBadge: '默认',

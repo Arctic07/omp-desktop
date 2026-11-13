@@ -185,8 +185,12 @@
  * the parsed document, and the desktop answers with per-control `answers` instead of `kind` +
  * `results`. An artifact from before 39 would absorb the `form` frame as an unknown method and leave
  * the tool waiting for an answer nothing was going to send - the same silence as 13/16/17.
+ *
+ * 40 adds the plugin-management parity commands (`plugins_install_preview`, `plugins_features_set`,
+ * `plugins_doctor`, `plugins_auto_update`, `extensions_list`, `extensions_set`) plus the `local` and
+ * `force` arguments on existing ones - the same class as 35.
  */
-export const PROTOCOL_VERSION = 39
+export const PROTOCOL_VERSION = 40
 
 /**
  * The plugin worker's own protocol version (plan §6.2/§8.1), shared with the Rust supervisor.
@@ -490,6 +494,17 @@ export const MCP_TIMEOUT_MS_MAX = 3_600_000
 export const PLUGIN_SOURCE_MAX = 512
 export const PLUGIN_ID_MAX = 256
 export const PLUGIN_KEY_MAX = 128
+
+/**
+ * The extensions dashboard's own bounds: the rows one answer may carry, the length of one item id,
+ * and the number of ids `disabledExtensions` may hold.
+ *
+ * The row cap is a page bound; the id cap matches the longest engine id shape
+ * (`extension-module:<file>`), and the list cap keeps one setting from growing without end.
+ */
+export const EXTENSION_ITEMS_MAX = 1_000
+export const EXTENSION_ID_MAX = 512
+export const EXTENSIONS_IDS_MAX = 4_096
 export const PLUGIN_SETTING_TEXT_MAX = 8_192
 
 /**

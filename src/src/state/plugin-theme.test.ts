@@ -141,6 +141,7 @@ function row(themes: EnginePluginTheme[]): PluginRow {
       dapConfig: false,
     },
     settings: { keys: [], hasSecret: false },
+    features: [],
     desktop,
     desktopError: null,
   }

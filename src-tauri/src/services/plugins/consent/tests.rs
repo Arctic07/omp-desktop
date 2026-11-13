@@ -33,6 +33,7 @@ fn row(id: &str, scope: &str, enabled: bool, consent_required: bool) -> EnginePl
         },
         code: EnginePluginCode::default(),
         settings: EnginePluginSettingsSummary::default(),
+        features: Vec::new(),
         desktop: None,
         desktop_error: None,
     }
@@ -178,6 +179,7 @@ fn widened_installs_match_by_installation_and_skip_the_unchanged() {
             },
             code: EnginePluginCode::default(),
             settings: EnginePluginSettingsSummary::default(),
+            features: Vec::new(),
             desktop: None,
             desktop_error: None,
         }
@@ -202,12 +204,35 @@ fn widened_installs_match_by_installation_and_skip_the_unchanged() {
     let widened = widened_installs(&before, &after);
     assert_eq!(widened.len(), 1);
     assert_eq!(widened[0].id, "b@m");
-    assert_eq!(
-        widened[0].target, "b@m",
-        "the handle the switch-off is addressed through"
-    );
     assert_eq!(widened[0].scope, "user");
     assert_eq!(widened[0].reasons, vec!["mcp-config".to_owned()]);
+}
+
+/// A widening renews an answer; it never creates one. The installation the user withdrew stays out
+/// of the renewal set, so an upgrade cannot silently undo a withdrawal.
+#[test]
+fn a_widening_renews_only_the_confirmations_already_on_record() {
+    let widened = vec![
+        WidenedInstall {
+            id: "kept@m".to_owned(),
+            scope: "user".to_owned(),
+            reasons: vec!["mcp-config".to_owned()],
+        },
+        WidenedInstall {
+            id: "withdrawn@m".to_owned(),
+            scope: "user".to_owned(),
+            reasons: vec!["hooks-dir".to_owned()],
+        },
+    ];
+    let grants = vec![PluginGrantRow {
+        plugin_id: "kept@m".to_owned(),
+        scope: "user".to_owned(),
+        granted_at: "2026-01-01T00:00:00.000Z".to_owned(),
+    }];
+
+    let renewed = renewals(&widened, &grants);
+    assert_eq!(renewed.len(), 1);
+    assert_eq!(renewed[0].id, "kept@m");
 }
 
 /// The scope an import addresses: named, unique, ambiguous, unknown, or not installed there.

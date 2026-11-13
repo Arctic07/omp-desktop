@@ -45,6 +45,19 @@ struct Event<'a> {
     marketplace: Option<&'a str>,
 }
 
+/// The line a renewal writes: the event, the installation, and the reasons the new version adds.
+///
+/// The reasons are a field of their own rather than text inside the event name, so a reader can
+/// answer "which capability did v2 add" without parsing prose.
+#[derive(serde::Serialize)]
+struct RenewedEvent<'a> {
+    event: &'a str,
+    #[serde(rename = "pluginId")]
+    plugin_id: &'a str,
+    scope: &'a str,
+    reasons: &'a [String],
+}
+
 /// An install finished and the list that came back holds what it added.
 pub(crate) fn install(plugin_id: &str, scope: Option<&str>) {
     write("plugin.install", plugin_id, scope);
@@ -70,6 +83,15 @@ pub(crate) fn disable(plugin_id: &str, scope: Option<&str>) {
 /// The user confirmed that this installation may run code.
 pub(crate) fn permission_granted(plugin_id: &str, scope: Option<&str>) {
     write("plugin.permission.granted", plugin_id, scope);
+}
+
+/// An upgrade replaced the installation's files and the confirmation already on record was carried
+/// over to the new code, whose reason list is wider than the one it was given for.
+///
+/// Its own event, not `permission.granted`: the user gave no answer in this write, and a trail that
+/// spelled it as a grant would claim one. `reasons` is the set the new version adds.
+pub(crate) fn permission_renewed(plugin_id: &str, scope: Option<&str>, reasons: &[String]) {
+    write_renewed(plugin_id, scope, reasons);
 }
 
 /// The confirmation this installation would have needed was not given: either the user withdrew it,
@@ -249,6 +271,26 @@ fn write_source(event: &str, plugin_id: &str, scope: Option<&str>, marketplace: 
     write_line(event_line(event, plugin_id, scope, Some(marketplace)));
 }
 
+/// The line a renewal is written as: the event, the installation, and the reasons it now covers.
+///
+/// Apart from [`event_line`] rather than a parameter on it, because the reasons are this event's own
+/// field: every other event is an event plus an installation, and a payload that varied by event name
+/// would make the trail's shape depend on prose.
+fn renewed_line(plugin_id: &str, scope: Option<&str>, reasons: &[String]) -> Option<String> {
+    serde_json::to_string(&RenewedEvent {
+        event: "plugin.permission.renewed",
+        plugin_id,
+        scope: scope.unwrap_or(SCOPE_UNSPECIFIED),
+        reasons,
+    })
+    .ok()
+}
+
+/// Writes one renewal line.
+fn write_renewed(plugin_id: &str, scope: Option<&str>, reasons: &[String]) {
+    write_line(renewed_line(plugin_id, scope, reasons));
+}
+
 /// The one place a line reaches the log.
 fn write_line(line: Option<String>) {
     if let Some(line) = line {
@@ -289,6 +331,21 @@ mod tests {
         assert_eq!(parsed["event"], "plugin.enable");
         assert_eq!(parsed["pluginId"], "hello@official");
         assert_eq!(parsed["scope"], "user");
+    }
+
+    /// A renewal is its own event carrying the reasons it now covers - not a grant, which would
+    /// claim an answer the user did not give in that write.
+    #[test]
+    fn a_renewal_names_the_reasons_it_covers() {
+        let reasons = vec!["hooks-dir".to_owned(), "mcp-config".to_owned()];
+        let line = renewed_line("hello@official", Some("user"), &reasons).expect("a line");
+        let parsed: Value = serde_json::from_str(&line).expect("a JSON object");
+        assert_eq!(parsed["event"], "plugin.permission.renewed");
+        assert_eq!(parsed["pluginId"], "hello@official");
+        assert_eq!(parsed["scope"], "user");
+        assert_eq!(parsed["reasons"][0], "hooks-dir");
+        assert_eq!(parsed["reasons"][1], "mcp-config");
+        assert!(!line.contains('\n'), "one event is one line: {line}");
     }
 
     /// The theme event is recorded once per package revision: a plugin list is read again on every

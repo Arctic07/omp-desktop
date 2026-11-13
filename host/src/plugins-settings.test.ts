@@ -219,6 +219,64 @@ test('a bare id finds its marketplace record, and the key is the catalogue name'
   }
 })
 
+/**
+ * A scope the caller named is the scope that answers: a project-scope write must never be served by
+ * the user-scope copy of the same plugin, and the refusal names the scope it looked in.
+ */
+test('a named scope is never traded for the other installation', async () => {
+  const dir = installDir()
+  const project = path.join(dir.root, 'project')
+  fs.mkdirSync(project, { recursive: true })
+  const userOnly: InstalledPluginSummary = {
+    id: 'demo@market-a',
+    scope: 'user',
+    entries: [
+      {
+        scope: 'user' as const,
+        installPath: dir.root,
+        version: '1.0.0',
+        installedAt: '2026-01-01T00:00:00.000Z',
+        lastUpdated: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+  }
+  try {
+    // The user copy is installed; asking for the project one is a refusal, not a substitution.
+    await assert.rejects(
+      resolveConfigTarget(parsePluginId, manager(undefined), { listInstalledPlugins: async () => [userOnly] }, 'demo@market-a', 'project'),
+      (error: unknown) => {
+        if (!(error instanceof Error) || !('code' in error)) return false
+        return typeof error.code === 'string' && error.code === 'plugin_not_found' && error.message.includes('project scope')
+      },
+    )
+    // With both installed, the project copy is the one resolved.
+    const both: InstalledPluginSummary = {
+      ...userOnly,
+      entries: [
+        ...userOnly.entries,
+        {
+          scope: 'project' as const,
+          installPath: project,
+          version: '2.0.0',
+          installedAt: '2026-01-01T00:00:00.000Z',
+          lastUpdated: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    }
+    const target = await resolveConfigTarget(
+      parsePluginId,
+      manager(undefined),
+      { listInstalledPlugins: async () => [both] },
+      'demo@market-a',
+      'project',
+    )
+    assert.equal(target.plugin, null)
+    assert.equal(target.key, 'demo')
+  } finally {
+    dir.cleanup()
+  }
+})
+
 test('a declared setting resolves its schema, and an undeclared key is refused', () => {
   const target = {
     id: 'demo',
