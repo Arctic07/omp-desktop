@@ -388,7 +388,9 @@ pub(crate) async fn engine_plugin_uninstall(
     // any other (`services::plugins::builtin::write_refusal`).
     let listed = state.runtime.plugins(cwd.as_deref()).await?;
     let addressed = consent::targets(&listed.plugins, &id, scope);
-    if let Some(refusal) = builtin::write_refusal(&state, &app, &addressed).await {
+    if let Some(refusal) =
+        builtin::write_refusal(&state, &app, &addressed, builtin::BuiltinWrite::Remove).await
+    {
         return Err(refusal);
     }
     let mut plugins =
@@ -424,10 +426,13 @@ pub(crate) async fn engine_plugin_set_enabled(
     let listed = state.runtime.plugins(cwd.as_deref()).await?;
     // A built-in cannot be switched off: it is the surface the build promises, and its skills follow
     // it. Turning one *on* is still allowed, because a data root written by an earlier build may hold
-    // it disabled and this is the only way back without a reinstall.
+    // it disabled and this is the only way back without a reinstall. A definition that opted into
+    // the switch (`BuiltinDef::toggleable`) is the exception.
     if !enabled {
         let addressed = consent::targets(&listed.plugins, &id, scope);
-        if let Some(refusal) = builtin::write_refusal(&state, &app, &addressed).await {
+        if let Some(refusal) =
+            builtin::write_refusal(&state, &app, &addressed, builtin::BuiltinWrite::SwitchOff).await
+        {
             return Err(refusal);
         }
     }
@@ -579,7 +584,9 @@ pub(crate) async fn engine_plugin_update_switch(
     // not the user's to move, for the same reason it is not theirs to uninstall.
     let listed = state.runtime.plugins(cwd.as_deref()).await?;
     let addressed = consent::targets(&listed.plugins, &plugin_id, scope);
-    if let Some(refusal) = builtin::write_refusal(&state, &app, &addressed).await {
+    if let Some(refusal) =
+        builtin::write_refusal(&state, &app, &addressed, builtin::BuiltinWrite::Remove).await
+    {
         return Err(refusal);
     }
     let (mut plugins, switched) = switch::switch_source(

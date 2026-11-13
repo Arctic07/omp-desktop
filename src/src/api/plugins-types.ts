@@ -277,6 +277,11 @@ export interface PluginRow {
   enabled: boolean
   /** True for the plugin this application ships with, verified as such. */
   builtin: boolean
+  /**
+   * Whether this row's switch is offered. True for every ordinary plugin; a built-in keeps it only
+   * when its definition lets the user switch it off. Uninstall is separate and stays closed.
+   */
+  toggleable: boolean
   /** Set when a project install shadows a user install of the same plugin. */
   shadowedBy: string | null
   source: EnginePluginSource

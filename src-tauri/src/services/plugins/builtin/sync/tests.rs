@@ -36,6 +36,47 @@ fn the_enabled_state_is_read_from_the_definitions_own_installation() {
     assert!(!enabled_at(std::slice::from_ref(&alien), def));
 }
 
+/// The seed records a confirmation only for the installation it made, and only when that
+/// installation runs code.
+///
+/// The grant table is keyed by `(plugin id, scope)`, so the row the seed acts on has to be its own
+/// handle: a package that merely carries the same `package.json#name` from npm or another marketplace
+/// is a different installation and must not inherit this answer.
+#[test]
+fn the_seed_grant_is_due_only_for_its_own_code_running_installation() {
+    let def = def_for_plugin_id("omp.auto-continue").expect("this build ships one");
+    let mut own = row(def.name, "marketplace", Some(BUILTIN_MARKETPLACE_NAME));
+    own.consent.required = true;
+    assert!(needs_seed_grant(std::slice::from_ref(&own), def));
+
+    // A row that runs no code needs no record.
+    let mut plain = own.clone();
+    plain.consent.required = false;
+    assert!(!needs_seed_grant(std::slice::from_ref(&plain), def));
+
+    // The same package name from somebody else's marketplace is a different installation.
+    let mut foreign = row(def.name, "marketplace", Some("some-marketplace"));
+    foreign.consent.required = true;
+    assert!(!needs_seed_grant(std::slice::from_ref(&foreign), def));
+
+    // A linked or npm install of the same name has no marketplace handle at all.
+    let mut linked = row(def.name, "npm", None);
+    linked.consent.required = true;
+    assert!(!needs_seed_grant(std::slice::from_ref(&linked), def));
+
+    // Another plugin from the reserved marketplace is not this definition's installation.
+    let mut alien = row(
+        "other-plugin",
+        "marketplace",
+        Some(BUILTIN_MARKETPLACE_NAME),
+    );
+    alien.consent.required = true;
+    assert!(!needs_seed_grant(std::slice::from_ref(&alien), def));
+
+    // An empty list has nothing to record.
+    assert!(!needs_seed_grant(&[], def));
+}
+
 /// The decision the whole seeding rests on, read without an engine.
 ///
 /// The two rules that matter to the user are here: a list read never moves a disabled

@@ -94,6 +94,15 @@ pub(crate) fn permission_renewed(plugin_id: &str, scope: Option<&str>, reasons: 
     write_renewed(plugin_id, scope, reasons);
 }
 
+/// The application recorded a confirmation for a plugin it ships with, before enabling it.
+///
+/// Its own event, not `permission.granted`: nobody was asked. The package is this build's own, and
+/// the record exists so the quarantine the install chain runs does not switch off the surface the
+/// build promises - which is a fact about the package, not an answer the user gave.
+pub(crate) fn permission_builtin(plugin_id: &str, scope: Option<&str>) {
+    write("plugin.permission.builtin", plugin_id, scope);
+}
+
 /// The confirmation this installation would have needed was not given: either the user withdrew it,
 /// or a write asked for something that runs code before it was confirmed.
 pub(crate) fn permission_denied(plugin_id: &str, scope: Option<&str>) {

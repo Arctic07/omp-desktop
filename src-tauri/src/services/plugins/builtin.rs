@@ -86,10 +86,11 @@ pub(crate) const BUILTIN_SCOPE: &str = "user";
 /// One plugin this build ships. Adding one is a new entry here plus its
 /// `package/<name>/` directory and its catalogue entry — no code path changes.
 ///
-/// The three fields are the whole of a definition, and each of them is a string the rest of the
-/// crate would otherwise spell again: the package name the manifest declares, the installation id
-/// the engine derives from the package and the reserved marketplace, and the directory under
-/// `<bundle>/package/` that holds the package.
+/// The four fields are the whole of a definition, and each of them is a string or a permission the
+/// rest of the crate would otherwise spell again: the package name the manifest declares, the
+/// installation id the engine derives from the package and the reserved marketplace, the directory
+/// under `<bundle>/package/` that holds the package, and whether the user may switch this definition
+/// off. A definition is still not the user's to remove; `toggleable` only widens the switch.
 pub(crate) struct BuiltinDef {
     /// `package.json#name`, and the name the engine reports.
     pub(crate) name: &'static str,
@@ -97,6 +98,9 @@ pub(crate) struct BuiltinDef {
     pub(crate) install_id: &'static str,
     /// The directory under `<bundle>/package/` that holds this package.
     pub(crate) package_dir: &'static str,
+    /// Whether the user's own switch may turn this built-in off. `false` keeps the switch closed
+    /// (`PLUGIN_BUILTIN_PROTECTED`); removal is refused either way.
+    pub(crate) toggleable: bool,
 }
 
 /// Every plugin this build ships, in the order the surfaces list them.
@@ -108,11 +112,24 @@ pub(crate) struct BuiltinDef {
 /// The terminal contributes a work-panel tab this application draws itself
 /// (`omp.desktop.workPanelTabs`), so there is no document of its own for the page registry to serve.
 /// The browser is a first-party surface now, not a plugin: it draws its own tab and needs no bundle.
-pub(crate) const BUILTIN_DEFINITIONS: &[BuiltinDef] = &[BuiltinDef {
-    name: "omp.terminal",
-    install_id: "omp.terminal@omp-desktop-builtin",
-    package_dir: "omp.terminal",
-}];
+///
+/// The auto-continue plugin carries no page: it is one engine extension (`omp.extensions`) that
+/// resumes a turn a provider interrupted, and its switch is the user's because that behaviour is
+/// not a surface the build promises. Removal stays refused like every built-in.
+pub(crate) const BUILTIN_DEFINITIONS: &[BuiltinDef] = &[
+    BuiltinDef {
+        name: "omp.terminal",
+        install_id: "omp.terminal@omp-desktop-builtin",
+        package_dir: "omp.terminal",
+        toggleable: false,
+    },
+    BuiltinDef {
+        name: "omp.auto-continue",
+        install_id: "omp.auto-continue@omp-desktop-builtin",
+        package_dir: "omp.auto-continue",
+        toggleable: true,
+    },
+];
 
 /// The definition one plugin id belongs to, when this build ships it.
 ///
@@ -190,10 +207,27 @@ pub(crate) fn is_builtin_row(row: &EnginePluginRow) -> bool {
 /// command answers with - a read, an install, a switch. `trusted` is the process's own answer to
 /// "is the reserved marketplace this application's bundled catalogue", and a row keeps the mark only
 /// while both halves hold.
+///
+/// The switch answer is written here too, once, and carried to the page unchanged
+/// (`PluginRowView::toggleable`): the control and the refusal then read one decision rather than two
+/// derivations of it (`switch_open`).
 pub(crate) fn apply_trust(view: &mut EnginePluginsView, trusted: bool) {
     for row in view.plugins.iter_mut() {
-        row.builtin = trusted && is_builtin_row(row);
+        let builtin = trusted && is_builtin_row(row);
+        row.builtin = builtin;
+        row.toggleable = switch_open(builtin, identity::plugin_id(row).as_ref());
     }
+}
+
+/// Whether the user's own switch may turn one installation off.
+///
+/// The one predicate both sides read: the page's control (`apply_trust`) and the write that would
+/// arrive anyway (`protection_refusal`). An ordinary plugin is always the user's to switch; a
+/// built-in only when the definition this build carries opted in, which is a fact about the
+/// *definition* rather than about the row, so an installation from somebody else's marketplace keeps
+/// its ordinary answer.
+pub(crate) fn switch_open(builtin: bool, plugin_id: &str) -> bool {
+    !builtin || def_for_plugin_id(plugin_id).is_some_and(|def| def.toggleable)
 }
 
 /// The refusal a removal of the reserved marketplace earns, when the row really is this
@@ -227,13 +261,26 @@ pub(crate) fn marketplace_removal_refusal(
     ))
 }
 
+/// Which write a built-in protection question is about.
+///
+/// The switch and the removal are different asks: a definition may let the user stop the code it
+/// runs without letting them take the installation away. This enum is the one place the difference
+/// is named, so every write path passes it rather than deciding on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuiltinWrite {
+    /// The user's own switch, turning a running installation off.
+    SwitchOff,
+    /// A removal, or a source switch that removes the installation first.
+    Remove,
+}
+
 /// The refusal a write that would take a built-in plugin away earns, judged over the rows that
 /// write addresses.
 ///
-/// Built-ins are not the user's to switch off or remove: they *are* the surfaces the build promises
-/// (the terminal's tab) and the skills they carry, so a switch-off would take a feature away with no
-/// replacement. Their controls are disabled in the page; this is the answer a write that arrives
-/// anyway gets.
+/// Built-ins are the surfaces the build promises (the terminal's tab) and the skills they carry, so
+/// a removal is always refused and a switch-off is refused unless the definition opted in
+/// (`BuiltinDef::toggleable`). Their controls follow the same facts; this is the answer a write
+/// that arrives anyway gets.
 ///
 /// `verified` is this process's own answer to "is the reserved marketplace the bundle we shipped"
 /// ([`marketplace_verified`]). The row facts alone do not make a write ours: a package installed from
@@ -241,13 +288,29 @@ pub(crate) fn marketplace_removal_refusal(
 /// it stays the user's to manage - refusing that would leave them no way out of it. A same-named
 /// install from any *other* marketplace is not [`is_builtin_row`] at all, so it is refused by
 /// nothing here.
-pub(crate) fn protection_refusal(targets: &[&EnginePluginRow], verified: bool) -> Option<IpcError> {
-    let protected = verified && targets.iter().any(|row| is_builtin_row(row));
+pub(crate) fn protection_refusal(
+    targets: &[&EnginePluginRow],
+    verified: bool,
+    write: BuiltinWrite,
+) -> Option<IpcError> {
+    let protected = verified
+        && targets.iter().any(|row| {
+            let builtin = is_builtin_row(row);
+            match write {
+                BuiltinWrite::Remove => builtin,
+                BuiltinWrite::SwitchOff => !switch_open(builtin, identity::plugin_id(row).as_ref()),
+            }
+        });
     protected.then(|| {
-        IpcError::new(
-            PLUGIN_BUILTIN_PROTECTED,
-            "This plugin ships with the application: it cannot be disabled or removed.",
-        )
+        let message = match write {
+            BuiltinWrite::SwitchOff => {
+                "This plugin ships with the application: its switch cannot be turned off."
+            }
+            BuiltinWrite::Remove => {
+                "This plugin ships with the application: it cannot be disabled or removed."
+            }
+        };
+        IpcError::new(PLUGIN_BUILTIN_PROTECTED, message)
     })
 }
 
@@ -261,11 +324,12 @@ pub(crate) async fn write_refusal(
     state: &AppState,
     app: &tauri::AppHandle,
     targets: &[&EnginePluginRow],
+    write: BuiltinWrite,
 ) -> Option<IpcError> {
     if !targets.iter().any(|row| is_builtin_row(row)) {
         return None;
     }
-    protection_refusal(targets, marketplace_verified(state, app).await)
+    protection_refusal(targets, marketplace_verified(state, app).await, write)
 }
 
 /// The refusal a restore of something other than the built-in installation earns.

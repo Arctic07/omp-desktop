@@ -52,7 +52,10 @@ export interface PluginsCopy extends ProcessCopy {
   shadowedHint: string
   /** The badge and the disabled-control reason on a plugin this application ships with. */
   builtinBadge: string
+  /** Why a built-in cannot be removed (the uninstall control). */
   builtinHint: string
+  /** Why this built-in's switch is closed; a built-in whose definition opted in keeps its switch. */
+  builtinSwitchHint: string
   noDescription: string
   sourceKinds: Readonly<Record<string, string>>
   /** The three states a row's own status can be in, as the engine's answer reads them. */
@@ -283,8 +286,9 @@ export const COPY: Localized<PluginsCopy> = {
     consentGrantedBadge: 'Permission recorded',
     shadowedBadge: 'Shadowed',
     builtinBadge: 'Built-in',
-    builtinHint:
-      'This plugin ships with the application: it cannot be switched off or removed, and the skills it carries follow it.',
+    builtinHint: 'This plugin ships with the application: it cannot be removed.',
+    builtinSwitchHint:
+      'This built-in is part of the application surface: its switch cannot be turned off.',
     shadowedHint:
       'A project-scope install with the same id takes precedence over this user-scope one.',
     noDescription: 'No description',
@@ -623,7 +627,8 @@ export const COPY: Localized<PluginsCopy> = {
     consentGrantedBadge: '已记录授权',
     shadowedBadge: '已被遮蔽',
     builtinBadge: '内置',
-    builtinHint: '这个插件随应用一起提供：不能关闭或卸载，它带的技能随插件状态。',
+    builtinHint: '这个插件随应用一起提供：不能移除。',
+    builtinSwitchHint: '这个内置插件属于应用自身的界面能力：开关不能关闭。',
     shadowedHint: '项目作用域安装了同 ID 的插件，项目级优先，这一条用户级不会生效。',
     noDescription: '暂无描述',
     sourceKinds: {

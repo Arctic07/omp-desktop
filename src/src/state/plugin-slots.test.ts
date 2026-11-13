@@ -90,6 +90,7 @@ function row(overrides: Partial<PluginRow> = {}): PluginRow {
     scope: 'user',
     enabled: true,
     builtin: false,
+    toggleable: true,
     shadowedBy: null,
     source: {
       kind: 'marketplace',
