@@ -229,6 +229,7 @@ export async function activateSession(
       {
         selectOptionLabel: port.sdk.selectOptionLabel,
         theme: port.sdk.theme,
+        timedOutAsk: port.sdk.timedOutAsk,
         htmlForm: port.sdk.htmlForm,
       },
       configuredUiTimeoutMs(),

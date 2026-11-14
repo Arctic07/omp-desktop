@@ -939,11 +939,6 @@ fn project_todo_phases(state: &Value) -> Vec<TodoPhase> {
                             Some(TodoItem {
                                 content: content.to_owned(),
                                 status: TodoStatus::from_wire(status),
-                                blocker: task
-                                    .get("blocker")
-                                    .and_then(Value::as_str)
-                                    .filter(|note| !note.is_empty())
-                                    .map(str::to_owned),
                             })
                         })
                         .collect()

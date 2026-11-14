@@ -96,6 +96,7 @@ import type {
   SessionBeforeCompactEvent,
   SessionBeforeCompactResult,
 } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import type { timedOutAskDialogResult } from '@oh-my-pi/pi-coding-agent/extensibility/extensions/types'
 import autoContinuePrompt from '@oh-my-pi/pi-coding-agent/prompts/system/auto-continue' with { type: 'text' }
 
 /**
@@ -422,6 +423,14 @@ export interface SdkBundle {
   /** Label of one select option, as other frontends render it. */
   readonly selectOptionLabel: (option: ExtensionUISelectItem) => string
   /**
+   * The engine's own answer to an `ask` dialog whose deadline elapsed.
+   *
+   * The engine owns the rule (each question takes its recommended option, else its first, marked
+   * `timedOut`) and its TUI, ACP and RPC surfaces all answer through this one function; the host's
+   * dialog bridge binds it so a timed-out question means here what it means everywhere else.
+   */
+  readonly timedOutAsk: typeof timedOutAskDialogResult
+  /**
    * The engine's own HTML-form reader and value rules, for the `ask` tool's form surface.
    *
    * `parseHtmlForm`, `defaultFormData`, `isArrayChoice` and `textValue` are the functions the
@@ -733,6 +742,7 @@ export async function loadSdk(): Promise<SdkBundle> {
     resetCapabilities: capability.reset,
     theme: sdk.theme,
     selectOptionLabel: extensionUi.getExtensionUISelectOptionLabel,
+    timedOutAsk: extensionUi.timedOutAskDialogResult,
     htmlForm: {
       parse: htmlFormParse.parseHtmlForm,
       defaults: htmlFormData.defaultFormData,

@@ -38,7 +38,7 @@ test('a phase reads as its own name and its own count, with the engine statuses 
       name: '当前进度',
       tasks: [
         { content: '写代码', status: 'completed' },
-        { content: '跑测试', status: 'blocked', blocker: '缺凭据' },
+        { content: '跑测试', status: 'unknown' },
         { content: '看日志', status: 'abandoned' },
         { content: '写报告', status: 'in_progress' },
       ],
@@ -51,11 +51,10 @@ test('a phase reads as its own name and its own count, with the engine statuses 
   assert.equal(block?.kind === 'plan' ? block.total : -1, 4)
   assert.deepEqual(
     block?.kind === 'plan' ? block.items.map((item) => item.status) : [],
-    // `blocked` is a task nobody can start yet and `abandoned` one nobody will: the list has a
-    // pending mark and a cancelled one, and those are the two it draws.
+    // A status this build does not know is a task nobody has started yet as far as the list can
+    // tell, and `abandoned` is one nobody will: the list has a pending mark and a cancelled one.
     ['completed', 'pending', 'cancelled', 'in-progress'],
   )
-  assert.equal(block?.kind === 'plan' ? block.items[1]?.detail : undefined, '缺凭据')
 })
 
 test('the detached work follows the plan as one roster block, not one block per job', () => {

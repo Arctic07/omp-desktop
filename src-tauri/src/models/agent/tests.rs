@@ -224,12 +224,10 @@ fn todo_phases_keep_their_wire_names_and_hide_when_empty() {
                 TodoItem {
                     content: "Scaffold crate".to_owned(),
                     status: TodoStatus::InProgress,
-                    blocker: None,
                 },
                 TodoItem {
                     content: "Write the migration".to_owned(),
-                    status: TodoStatus::Blocked,
-                    blocker: Some("waiting on the engine release".to_owned()),
+                    status: TodoStatus::Abandoned,
                 },
             ],
         }],
@@ -241,11 +239,19 @@ fn todo_phases_keep_their_wire_names_and_hide_when_empty() {
         "Scaffold crate"
     );
     assert_eq!(phases["todoPhases"][0]["tasks"][0]["status"], "in_progress");
-    assert!(phases["todoPhases"][0]["tasks"][0].get("blocker").is_none());
-    assert_eq!(
-        phases["todoPhases"][0]["tasks"][1]["blocker"],
-        "waiting on the engine release"
-    );
+    assert_eq!(phases["todoPhases"][0]["tasks"][1]["status"], "abandoned");
+}
+
+/// A status this build does not know is a task the dock still draws, never a dropped row.
+///
+/// `blocked` is the case that matters: engine 18.20.0 removed it, so the word can only arrive from a
+/// host older than this build - and it must land on `Unknown` (drawn as pending), not on a variant
+/// this build no longer has and not on `abandoned`, which would say the work was dropped.
+#[test]
+fn an_unknown_todo_status_stays_a_task() {
+    assert_eq!(TodoStatus::from_wire("blocked"), TodoStatus::Unknown);
+    assert_eq!(TodoStatus::from_wire("in_progress"), TodoStatus::InProgress);
+    assert_eq!(TodoStatus::from_wire(""), TodoStatus::Unknown);
 }
 
 /// The four additive host fields are a wire contract the frontend declares by name

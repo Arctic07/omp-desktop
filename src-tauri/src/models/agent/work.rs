@@ -190,19 +190,21 @@ pub(crate) enum TodoStatus {
     InProgress,
     Completed,
     Abandoned,
-    Blocked,
     Unknown,
 }
 
 impl TodoStatus {
     /// The status a host state carries, `Unknown` for anything this build does not know.
+    ///
+    /// `blocked` was a status until engine 18.20.0 removed it: a list saved with one reads back
+    /// `pending` in the engine itself, so a host state that still carries the word is a host older
+    /// than this build, and `Unknown` is the honest answer for a status this one cannot draw.
     pub(crate) fn from_wire(value: &str) -> Self {
         match value {
             "pending" => Self::Pending,
             "in_progress" => Self::InProgress,
             "completed" => Self::Completed,
             "abandoned" => Self::Abandoned,
-            "blocked" => Self::Blocked,
             _ => Self::Unknown,
         }
     }
@@ -213,10 +215,6 @@ impl TodoStatus {
 pub(crate) struct TodoItem {
     pub(crate) content: String,
     pub(crate) status: TodoStatus,
-    /// What a blocked task waits for. The engine only sets it on `blocked`, so it is absent
-    /// everywhere else rather than an empty string the frontend would have to test for.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) blocker: Option<String>,
 }
 
 /// A named group of todo tasks - the engine's unit of work, and the row the dock shows.
