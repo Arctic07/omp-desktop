@@ -219,13 +219,11 @@ export type TodoStatus =
   | 'in_progress'
   | 'completed'
   | 'abandoned'
-  | 'blocked'
   | 'unknown'
 
 export interface TodoItem {
   content: string
   status: TodoStatus
-  blocker?: string
 }
 
 export interface TodoPhase {
@@ -548,6 +546,22 @@ export type UiRequest =
       message: string
       options: string[]
       optionDescriptions: string[]
+      /**
+       * The row the engine named as the dialog's cursor, or absent when it named none.
+       *
+       * It is the dialog's default answer either way (the card draws the first row as one when the
+       * engine named no row), but focus only moves when a row was named - a `confirm` names none,
+       * and focusing its approve button would put an Enter meant for the composer onto a tool
+       * call's approval. With `selectionMarker: 'radio'` it is also the row the marker fills: the
+       * engine sends no `checkedIndices` for a radio, and its own selector fills the cursor row.
+       */
+      initialIndex?: number
+      /** The marker the engine draws beside each markable row. */
+      selectionMarker?: 'radio' | 'checkbox'
+      /** For `selectionMarker: 'checkbox'`, the rows already checked. */
+      checkedIndices?: number[]
+      /** Leading rows that carry a marker; trailing ones are actions such as "Done". May equal the option count. */
+      markableCount?: number
       timeoutMs: number | null
     }
   | {

@@ -786,6 +786,28 @@ pub(crate) enum UiRequest {
         options: Vec<String>,
         #[serde(rename = "optionDescriptions")]
         option_descriptions: Vec<String>,
+        /// Index into `options` the engine named as the dialog's cursor, when it named one.
+        ///
+        /// Absent from a host that predates the field and from a select with no cursor. It is the
+        /// dialog's default answer either way, but focus only moves when this is present; with a
+        /// `radio` marker it is also the row the marker fills.
+        #[serde(rename = "initialIndex", skip_serializing_if = "Option::is_none")]
+        initial_index: Option<usize>,
+        /// `radio` or `checkbox`: the marker the engine draws beside each markable row.
+        #[serde(rename = "selectionMarker", skip_serializing_if = "Option::is_none")]
+        selection_marker: Option<String>,
+        /// For `selectionMarker: "checkbox"`, the option indices already checked.
+        ///
+        /// Serialized unconditionally once the marker is a checkbox, because an empty list is a
+        /// fact (nothing is checked) while an absent one means the engine never said.
+        #[serde(rename = "checkedIndices", skip_serializing_if = "Option::is_none")]
+        checked_indices: Option<Vec<usize>>,
+        /// Leading options that carry a marker; trailing ones are actions such as "Done".
+        ///
+        /// A count, so it may equal the option count - the engine sends exactly that when its
+        /// "Done" row is absent.
+        #[serde(rename = "markableCount", skip_serializing_if = "Option::is_none")]
+        markable_count: Option<usize>,
         #[serde(rename = "timeoutMs")]
         timeout_ms: Option<u64>,
     },

@@ -33,7 +33,6 @@ const TODO_STATUS: Record<TodoStatus, TodoItemStatus> = {
   in_progress: "in-progress",
   completed: "completed",
   abandoned: "cancelled",
-  blocked: "pending",
   unknown: "pending",
 };
 
@@ -137,7 +136,6 @@ export function composerBlocks(
       id: `${phase.name}-${taskIndex}`,
       title: task.content,
       status: TODO_STATUS[task.status] ?? "pending",
-      detail: task.blocker,
     }));
     blocks.push({
       kind: "plan",

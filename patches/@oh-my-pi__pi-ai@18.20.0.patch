@@ -1,5 +1,5 @@
 diff --git a/dist/types/error/flags.d.ts b/dist/types/error/flags.d.ts
-index d58ade066c76dc542f73ce49016192a245dcb5f2..b8839cd6e8d5da0c9af952fd0f8919c53f0ddf0b 100644
+index 7105059266daf853bc39ad8e5e5c87d934a00f96..06a891a659374505990dad87eea9e6369defdbd4 100644
 --- a/dist/types/error/flags.d.ts
 +++ b/dist/types/error/flags.d.ts
 @@ -44,6 +44,12 @@ export declare const PYTHON_HTTP2_STREAM_RESET_PATTERN: RegExp;
@@ -16,10 +16,10 @@ index d58ade066c76dc542f73ce49016192a245dcb5f2..b8839cd6e8d5da0c9af952fd0f8919c5
  export declare function isRequestBodyReadTimeout(status: number | undefined, message: string | undefined): boolean;
  /** Exact pre-output Responses 408 that needs a changed-request recovery path. */
 diff --git a/src/error/flags.ts b/src/error/flags.ts
-index c4733a7d08ed9bb37006be39a1b0bfc74a86863b..7429129fa9c0d06aea69ba2a0c98ee044cca72b9 100644
+index bacf7d69b4e250c03992d20572bec303ce1fdcbe..c28f1085338a903a81c2a0ed993ed7d9afc550af 100644
 --- a/src/error/flags.ts
 +++ b/src/error/flags.ts
-@@ -176,6 +176,13 @@ export const PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN =
+@@ -177,6 +177,13 @@ export const PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN =
  	/peer closed connection without sending complete message body \(incomplete chunked read\)/;
  /** reqwest body-frame failures forwarded by the Codex HTTP proxy. */
  export const CODEX_HTTP_BODY_READ_ERROR_PATTERN = /\btransport error reading codex response body\b/i;
@@ -33,7 +33,7 @@ index c4733a7d08ed9bb37006be39a1b0bfc74a86863b..7429129fa9c0d06aea69ba2a0c98ee04
  
  const RESPONSES_REQUEST_BODY_READ_TIMEOUT_PATTERN = /\btimed out reading request body\b/i;
  
-@@ -592,6 +599,7 @@ function isTransientErrorText(text: string): boolean {
+@@ -593,6 +600,7 @@ function isTransientErrorText(text: string): boolean {
  		isStreamReadErrorText(text) ||
  		PYTHON_HTTP2_STREAM_RESET_PATTERN.test(text) ||
  		PYTHON_HTTP_INCOMPLETE_CHUNK_PATTERN.test(text) ||

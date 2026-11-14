@@ -141,6 +141,10 @@ function DialogCard({
       <ChoiceDialog
         title={request.title}
         options={request.options}
+        initialIndex={request.initialIndex}
+        selectionMarker={request.selectionMarker}
+        checkedIndices={request.checkedIndices}
+        markableCount={request.markableCount}
         onAnswer={(choice) => onAnswer({ value: typeof choice === "string" ? choice : "" })}
         onCancel={() => onAnswer({ cancelled: true })}
       />

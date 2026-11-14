@@ -12,6 +12,7 @@ import type {
   ExtensionAskDialogResult,
   ExtensionFormDialogResult,
   ExtensionUIContext,
+  ExtensionUIDialogOptions,
   ExtensionUISelectItem,
   HtmlFormData,
   HtmlFormValue,
@@ -29,6 +30,8 @@ export interface UiEngineBindings {
   readonly selectOptionLabel: (option: ExtensionUISelectItem) => string
   /** Shared default theme object (this host renders no TUI, but extensions read it). */
   readonly theme: Theme
+  /** The engine's own answer to an `ask` dialog whose deadline elapsed; see `sdk.ts`'s binding. */
+  readonly timedOutAsk: (questions: ExtensionAskDialogQuestion[]) => ExtensionAskDialogResult
   /**
    * The engine's own HTML-form reader and value rules (`sdk.ts`'s `htmlForm`).
    *
@@ -64,48 +67,12 @@ interface DialogSpec<T> {
    * ask tool documents its own behaviour here: a question that times out is answered with its
    * recommended option rather than cancelled, so its expiry carries a value while a closed session
    * still resolves the fallback.
+   *
+   * A thunk, not a value: the answer is only needed when the deadline actually elapses, and the
+   * engine's rule should not run once for every dialog that is answered in time.
    */
-  readonly expireValue?: T
+  readonly expireValue?: () => T
   readonly parse: (response: Record<string, unknown>) => T
-}
-
-/**
- * The answer an unanswered question gets: the recommended option (the first one when the engine
- * marked none), for every question, marked as timed out. Mirrors the engine's own
- * `getAutoSelectionOnTimeout` in `tools/ask.ts`, which a rich dialog surface is responsible for
- * applying - the alternative is `undefined`, which the tool reads as "the user cancelled".
- */
-function autoAnswerAsk(questions: readonly ExtensionAskDialogQuestion[]): ExtensionAskDialogResult {
-  return {
-    kind: 'submit',
-    results: questions.map((question) => {
-      const option = question.options[question.recommended ?? 0] ?? question.options[0]
-      return {
-        ...questionEcho(question),
-        selectedOptions: option === undefined ? [] : [option.label],
-        timedOut: true,
-      }
-    }),
-  }
-}
-
-/**
- * The question as the result type repeats it. The engine keeps the question, its option labels and
- * its multi flag alongside the answer, so a result stands on its own in a transcript without the
- * request that produced it.
- */
-function questionEcho(question: ExtensionAskDialogQuestion): {
-  id: string
-  question: string
-  options: string[]
-  multi: boolean
-} {
-  return {
-    id: question.id,
-    question: question.question,
-    options: question.options.map(option => option.label),
-    multi: question.multi === true,
-  }
 }
 
 /**
@@ -159,6 +126,49 @@ function parseAskResult(
       }
     }),
   }
+}
+
+/**
+ * The engine's preselection facts for one `select`, as the frame carries them.
+ *
+ * Only facts the engine actually set travel: an absent field means "the engine said nothing", which
+ * is a different statement from "index 0" or "no markers", and the dialog draws its own default for
+ * it. `markableCount` and `checkedIndices` are meaningless without `selectionMarker` - the engine
+ * documents them as its companions - so they travel only alongside it.
+ *
+ * The two numbers are bounded by what they count, and the two bounds are not the same one: an index
+ * addresses a row, so it must be `< optionCount`; `markableCount` counts the leading rows and may
+ * equal the whole list (the engine sends exactly that when its "Done" row is absent). Indices the
+ * caller sent outside the list are dropped rather than carried to a window that cannot point at
+ * them, and the surviving set is deduped and capped: an extension can call `ui.select` directly,
+ * and a list of a hundred thousand duplicate indices is a frame this process should not relay.
+ */
+function selectPreselection(
+  dialogOptions: Pick<
+    ExtensionUIDialogOptions,
+    'initialIndex' | 'selectionMarker' | 'checkedIndices' | 'markableCount'
+  > | undefined,
+  optionCount: number,
+): Record<string, unknown> {
+  if (dialogOptions === undefined) return {}
+  const isIndex = (value: number): boolean => Number.isInteger(value) && value >= 0 && value < optionCount
+  const isCount = (value: number): boolean => Number.isInteger(value) && value >= 0 && value <= optionCount
+  const fields: Record<string, unknown> = {}
+  if (typeof dialogOptions.initialIndex === 'number' && isIndex(dialogOptions.initialIndex)) {
+    fields.initialIndex = dialogOptions.initialIndex
+  }
+  const marker = dialogOptions.selectionMarker
+  if (marker === 'radio' || marker === 'checkbox') {
+    fields.selectionMarker = marker
+    if (typeof dialogOptions.markableCount === 'number' && isCount(dialogOptions.markableCount)) {
+      fields.markableCount = dialogOptions.markableCount
+    }
+    if (dialogOptions.checkedIndices !== undefined) {
+      const unique = [...new Set(dialogOptions.checkedIndices.filter(isIndex))].slice(0, optionCount)
+      fields.checkedIndices = unique
+    }
+  }
+  return fields
 }
 
 /** The UI timeout in effect for dialogs the engine did not give a deadline for. */
@@ -215,7 +225,18 @@ export class UiBridge {
         const details = options.map(option => (typeof option === 'string' ? {} : { description: option.description ?? '' }))
         return this.#dialog({
           method: 'select',
-          fields: { title, options: labels, optionDetails: details },
+          // The engine's own preselection facts (`ExtensionUIDialogOptions`): which row it named as
+          // the cursor, whether rows carry a radio or checkbox marker, which of them are already
+          // checked, and how many leading rows are markable at all (a trailing "Other" or "Done"
+          // row is an action, not an answer). Forwarded as facts rather than interpreted here: a
+          // checkbox list is re-shown once per toggle by its caller, so only the dialog can draw
+          // the state the caller is about to read back.
+          fields: {
+            title,
+            options: labels,
+            optionDetails: details,
+            ...selectPreselection(dialogOptions, labels.length),
+          },
           timeoutMs: dialogOptions?.timeout,
           signal: dialogOptions?.signal,
           onTimeout: dialogOptions?.onTimeout,
@@ -254,14 +275,14 @@ export class UiBridge {
           signal: dialogOptions?.signal,
           onTimeout: dialogOptions?.onTimeout,
           fallback: undefined,
-          expireValue: autoAnswerAsk(questions),
+          expireValue: () => engine.timedOutAsk(questions),
           // Two owners can reach the deadline: this host's own timer, and the desktop's expiry of
-          // the same request. Both mean "the question timed out", which the engine answers with the
-          // recommended option - so a timed-out response is answered here rather than cancelled.
+          // the same request. Both mean "the question timed out", so a timed-out response is
+          // answered here rather than cancelled.
           parse: (response) => {
             if (response.timedOut === true) {
               dialogOptions?.onTimeout?.()
-              return autoAnswerAsk(questions)
+              return engine.timedOutAsk(questions)
             }
             return parseAskResult(response, dialogOptions?.onTimeout)
           },
@@ -284,7 +305,7 @@ export class UiBridge {
           fallback: undefined,
           // A deadline submits the form's current values, which is the contract the engine's own
           // form surface documents - and what the model was told its preselected answer means.
-          expireValue: { data: defaults, timedOut: true },
+          expireValue: () => ({ data: defaults, timedOut: true }),
           parse: (response) => {
             // Two owners can reach the deadline: this host's own timer (handled by `expireValue`
             // above) and the desktop's expiry of the same request, which arrives as
@@ -434,7 +455,7 @@ export class UiBridge {
       // the dialog's default rather than waiting forever.
       this.#events.emit({ type: 'extension_ui_cancel', id, requestId: id })
       spec.onTimeout?.()
-      resolve(spec.expireValue ?? spec.fallback)
+      resolve(spec.expireValue?.() ?? spec.fallback)
     }, timeoutMs)
 
     this.#pending.set(id, {

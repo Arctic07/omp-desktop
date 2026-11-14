@@ -93,12 +93,17 @@ pub(crate) fn handle_request(
                 })
                 .unwrap_or_default();
             let option_descriptions = descriptions(frame, options.len());
+            let preselection = select_preselection(frame, options.len());
             UiRequest::Select {
                 id: id.clone(),
                 title,
                 message,
                 options,
                 option_descriptions,
+                initial_index: preselection.initial_index,
+                selection_marker: preselection.selection_marker,
+                checked_indices: preselection.checked_indices,
+                markable_count: preselection.markable_count,
                 timeout_ms,
             }
         }
@@ -689,6 +694,71 @@ fn validate_shape(response: &UiResponse) -> IpcResult<()> {
     ))
 }
 
+/// The engine's preselection facts for one `select`, bounded to the options it names.
+///
+/// A marker is only meaningful beside the list it marks, so `markableCount` and `checkedIndices`
+/// travel only with `selectionMarker`. Every field is absent when the engine said nothing, which the
+/// dialog draws as its own default.
+///
+/// The two numbers are bounded by what they count, and the bounds differ: an index addresses a row,
+/// so it must be `< option_count`; `markable_count` counts the leading rows and may equal the whole
+/// list, which is exactly what the engine sends when its "Done" row is absent. Indices past the end
+/// are dropped rather than carried to a window that cannot point at a row there, and what survives
+/// is deduped and capped - the host bounds this too, and this pass does not rely on that having run.
+#[derive(Debug, Default)]
+struct SelectPreselection {
+    initial_index: Option<usize>,
+    selection_marker: Option<String>,
+    checked_indices: Option<Vec<usize>>,
+    markable_count: Option<usize>,
+}
+
+fn select_preselection(frame: &Value, option_count: usize) -> SelectPreselection {
+    let is_index = |value: Option<&Value>| -> Option<usize> {
+        value
+            .and_then(Value::as_u64)
+            .map(|index| index as usize)
+            .filter(|index| *index < option_count)
+    };
+    let is_count = |value: Option<&Value>| -> Option<usize> {
+        value
+            .and_then(Value::as_u64)
+            .map(|index| index as usize)
+            .filter(|index| *index <= option_count)
+    };
+    let selection_marker = frame
+        .get("selectionMarker")
+        .and_then(Value::as_str)
+        .filter(|marker| *marker == "radio" || *marker == "checkbox")
+        .map(str::to_owned);
+    if selection_marker.is_none() {
+        return SelectPreselection {
+            initial_index: is_index(frame.get("initialIndex")),
+            ..SelectPreselection::default()
+        };
+    }
+    let mut checked_indices: Vec<usize> = frame
+        .get("checkedIndices")
+        .and_then(Value::as_array)
+        .map(|indices| {
+            indices
+                .iter()
+                .filter_map(Value::as_u64)
+                .map(|index| index as usize)
+                .filter(|index| *index < option_count)
+                .collect()
+        })
+        .unwrap_or_default();
+    checked_indices.sort_unstable();
+    checked_indices.dedup();
+    SelectPreselection {
+        initial_index: is_index(frame.get("initialIndex")),
+        checked_indices: frame.get("checkedIndices").map(|_| checked_indices),
+        markable_count: is_count(frame.get("markableCount")),
+        selection_marker,
+    }
+}
+
 fn text(frame: &Value, key: &str) -> String {
     frame
         .get(key)
@@ -730,6 +800,70 @@ mod tests {
             validate_shape(&response).expect_err("no shape").code,
             INVALID_INPUT
         );
+    }
+
+    #[test]
+    fn a_select_marker_carries_its_companions_bounded_to_the_options() {
+        let frame = json!({
+            "options": ["metrics", "tracing", "Done"],
+            "initialIndex": 1,
+            "selectionMarker": "checkbox",
+            "checkedIndices": [0, 7],
+            "markableCount": 2,
+        });
+        let preselection = select_preselection(&frame, 3);
+        assert_eq!(preselection.initial_index, Some(1));
+        assert_eq!(preselection.selection_marker.as_deref(), Some("checkbox"));
+        assert_eq!(preselection.checked_indices, Some(vec![0]));
+        assert_eq!(preselection.markable_count, Some(2));
+    }
+
+    #[test]
+    fn a_markable_count_may_cover_the_whole_list() {
+        // The engine sends `markableCount == options.len()` when its "Done" row is absent, so the
+        // count is bounded by `<=` while an index is bounded by `<`.
+        let frame = json!({
+            "options": ["a", "b"],
+            "selectionMarker": "checkbox",
+            "markableCount": 2,
+        });
+        let preselection = select_preselection(&frame, 2);
+        assert_eq!(preselection.markable_count, Some(2));
+        // An index equal to the length still points past the end and is dropped.
+        let out_of_range = json!({
+            "options": ["a", "b"],
+            "selectionMarker": "radio",
+            "initialIndex": 2,
+        });
+        assert_eq!(select_preselection(&out_of_range, 2).initial_index, None);
+    }
+
+    #[test]
+    fn repeated_checked_indices_collapse_to_one_each() {
+        // An extension calls `ui.select` directly, so the same row can be named many times; the
+        // window must not receive one entry per repetition.
+        let frame = json!({
+            "options": ["a", "b"],
+            "selectionMarker": "checkbox",
+            "checkedIndices": [1, 0, 1, 0, 1],
+        });
+        let preselection = select_preselection(&frame, 2);
+        assert_eq!(preselection.checked_indices, Some(vec![0, 1]));
+    }
+
+    #[test]
+    fn a_select_without_a_marker_carries_no_marker_companions() {
+        let frame = json!({
+            "options": ["a", "b"],
+            "initialIndex": 1,
+            "checkedIndices": [0],
+            "markableCount": 2,
+        });
+        let preselection = select_preselection(&frame, 2);
+        assert_eq!(preselection.initial_index, Some(1));
+        assert!(preselection.selection_marker.is_none());
+        assert!(preselection.checked_indices.is_none());
+        assert!(preselection.markable_count.is_none());
     }
 
     #[test]

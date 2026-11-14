@@ -1,5 +1,5 @@
 diff --git a/src/session/turn-recovery.ts b/src/session/turn-recovery.ts
-index 1748e9513ddac098a76ec2b7ae661c497275e8cb..84ced8d12297bf74e9ddaba12475c0dfb6005b5d 100644
+index 1748e9513ddac098a76ec2b7ae661c497275e8cb..2fc48a681c37e25c7c1a9a94c47271a22904d4a9 100644
 --- a/src/session/turn-recovery.ts
 +++ b/src/session/turn-recovery.ts
 @@ -1733,6 +1733,7 @@ export class TurnRecovery {
