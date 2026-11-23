@@ -58,10 +58,10 @@ function redact(input: string, keepPaths: boolean): string {
   let index = 0
   while (index < input.length && written < OUTPUT_LIMIT) {
     const character = input[index] as string
-    // A drive letter is only a path when it starts a word. `xd://`, `local://`, `agent://` and
-    // `https://` all reach the same `d:` / `l:` / `t:` / `s:` shape from inside a scheme, and the
+    // A drive letter is only a path when it starts a word. `help://`, `local://`, `agent://` and
+    // `https://` all reach the same `p:` / `l:` / `t:` / `s:` shape from inside a scheme, and the
     // run that follows is a tool name or a host rather than a file: redacting it turned the tool
-    // list into `~ x<path>` and a mount notice into `x<path>: unmounted …`. Two rules keep the two
+    // list into `~ <path>` and a mount notice into `<path>: …`. Two rules keep the two
     // apart - the letter must open the word (not sit inside one), and the colon must not be the
     // scheme separator (`://`, which no drive uses).
     const isDrivePath =

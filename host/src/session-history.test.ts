@@ -30,6 +30,11 @@ import {
  * one, and that non-desktop ids still reach the engine's handler unchanged.
  */
 
+/** The text of a resolved resource. `history` answers text; the router's bytes arm is not used. */
+function text(resource: InternalResourceLike): string {
+  return typeof resource.content === 'string' ? resource.content : resource.content.toString('utf8')
+}
+
 function fixture(): { root: string; paths: HostPaths } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omp-session-history-'))
   const sessionDir = path.join(root, 'sessions')
@@ -157,13 +162,11 @@ test('the conversation index stops at its limit and says how many were left out'
       pathname: '',
     })
     // A read lands in a model's context, so the listing is bounded and the count is stated.
-    const rows = resource.content.split('\n').filter((line) => /^\| s[0-9a-f]{16} \|/.test(line))
+    const body = text(resource)
+    const rows = body.split('\n').filter((line) => /^\| s[0-9a-f]{16} \|/.test(line))
     assert.equal(rows.length, INDEX_LIMIT)
     assert.ok(total > INDEX_LIMIT, 'the fixture exceeded the bound')
-    assert.match(
-      resource.content,
-      new RegExp(`Listing the ${INDEX_LIMIT} most recent of ${total} conversations`),
-    )
+    assert.match(body, new RegExp(`Listing the ${INDEX_LIMIT} most recent of ${total} conversations`))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -192,13 +195,13 @@ test('a desktop id resolves to a read-only transcript; other ids reach the engin
     )
     const id = sessionIdFor(flat)
     const resolved = await handler.resolve(url(id))
-    assert.match(resolved.content, /Flat conversation/)
+    assert.match(text(resolved), /Flat conversation/)
     assert.equal(resolved.sourcePath, flat)
     assert.equal(await handler.locate(url(id)), flat, 'link renderers locate the same file')
     assert.deepEqual(calls, [], 'a desktop id never reaches the engine handler')
 
     const agent = await handler.resolve(url('DeepWorker'))
-    assert.equal(agent.content, '# DeepWorker\n')
+    assert.equal(text(agent), '# DeepWorker\n')
     assert.deepEqual(calls, ['history://DeepWorker'])
 
     await assert.rejects(handler.resolve(url('s0000000000000000')), /Unknown desktop conversation/)
@@ -229,11 +232,12 @@ test('bare history appends the conversation index to the engine listing', async 
       href: 'history://',
       pathname: '',
     })
-    assert.match(resource.content, /# Agents/)
-    assert.match(resource.content, /## Desktop conversations/)
-    assert.match(resource.content, /Flat conversation/)
-    assert.match(resource.content, /Bucket conversation/)
-    assert.doesNotMatch(resource.content, /FrontendScout/)
+    const body = text(resource)
+    assert.match(body, /# Agents/)
+    assert.match(body, /## Desktop conversations/)
+    assert.match(body, /Flat conversation/)
+    assert.match(body, /Bucket conversation/)
+    assert.doesNotMatch(body, /FrontendScout/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

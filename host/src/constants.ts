@@ -174,23 +174,23 @@
  * host decides the variable from the spawn allow-list.
  *
  * 38 widens `session_delete` to take the routing id `session.read` publishes as well as the
- * transcript path this desktop's own delete names: that id address is the frame behind a plugin's
- * `session.delete`, and a plugin's `session.rename` needs no version of its own (`session_set_name`
- * already carries the id and the name). No command is added, and an artifact from before 38 would
- * still answer - but with the wrong refusal: it resolves `sessionFile` and finds none, so a delete a
- * plugin asked for comes back as an unreadable request rather than as a delete.
+ * transcript path this desktop's own delete names (`session.rename` rides `session_set_name`,
+ * which already carries both). An artifact from before 38 resolves `sessionFile`, finds none, and
+ * answers a delete as an unreadable request.
  *
  * 39 adds the `ask` tool's form dialog: engine 18.18.3 replaced `questions[]` with one HTML form
- * (`{ html }`) and prefers `ui.formDialog`, so the host now answers with a `form` request carrying
- * the parsed document, and the desktop answers with per-control `answers` instead of `kind` +
- * `results`. An artifact from before 39 would absorb the `form` frame as an unknown method and leave
- * the tool waiting for an answer nothing was going to send - the same silence as 13/16/17.
+ * (`{ html }`) and prefers `ui.formDialog`, so the host answers with a `form` request carrying the
+ * parsed document and the desktop answers with per-control `answers` instead of `kind` + `results`.
+ * An artifact from before 39 would absorb the `form` frame and leave the tool waiting.
  *
  * 40 adds the plugin-management parity commands (`plugins_install_preview`, `plugins_features_set`,
  * `plugins_doctor`, `plugins_auto_update`, `extensions_list`, `extensions_set`) plus the `local` and
  * `force` arguments on existing ones - the same class as 35.
+ *
+ * 41 carries SDK 19.1's run lifecycle: `agent_pause` with `yielded`/`awaiting` per stopped loop, and
+ * an `agent_end` without its old flags; an older artifact would hold a turn open across a pause.
  */
-export const PROTOCOL_VERSION = 40
+export const PROTOCOL_VERSION = 41
 
 /**
  * The plugin worker's own protocol version (plan §6.2/§8.1), shared with the Rust supervisor.

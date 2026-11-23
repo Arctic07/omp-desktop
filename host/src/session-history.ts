@@ -315,7 +315,9 @@ export class DesktopHistoryHandler implements InternalUrlHandlerLike {
     if (id === '') {
       const base = await this.#delegate.resolve(url, context)
       const section = renderConversationIndex(conversationRows(this.#paths))
-      if (section === '') return base
+      // The desktop index is markdown appended to text. A byte resource (the router's widened
+      // `string | Buffer` contract) has no text to extend, so the delegate's bytes pass through.
+      if (section === '' || typeof base.content !== 'string') return base
       const content = `${base.content.trimEnd()}\n\n${section}`
       return { ...base, content, size: Buffer.byteLength(content, 'utf8') }
     }

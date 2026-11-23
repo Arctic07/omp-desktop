@@ -26,6 +26,10 @@ use serde_json::Value;
 const PROJECTED: &[&str] = &[
     "agent_start",
     "agent_end",
+    // One model loop that stopped while the run goes on. It closes the turn only when the model
+    // finished and nothing it scheduled resumes it; either way its messages can repair a lost frame
+    // (`events.rs::on_event`).
+    "agent_pause",
     "turn_start",
     "turn_end",
     "message_start",
@@ -60,10 +64,10 @@ const PROJECTED: &[&str] = &[
 /// [`Route::Unregistered`], which is counted and logged.
 ///
 /// The list is the engine's own session-event vocabulary minus what the projector renders, checked
-/// against the SDK this build ships (`@oh-my-pi/pi-coding-agent@18.13.3`,
+/// against the SDK this build ships (`@oh-my-pi/pi-coding-agent@19.1.0`,
 /// `src/session/agent-session-events.ts`: `AgentSessionEvent` is `AgentEvent` plus the session's own
 /// members, and `AgentSession` re-emits every one of them through the subscription the host forwards
-/// verbatim - `host/src/session-activate.ts:244`). A type the union declares is therefore a type that
+/// verbatim - `host/src/session-activate.ts`). A type the union declares is therefore a type that
 /// can arrive, and one that arrives with no entry here is counted and logged as unregistered.
 ///
 /// The removed RPC-sidecar vocabulary is deliberately absent: `command_output`,
@@ -262,7 +266,7 @@ mod tests {
     /// `log::warn`-ed - which is exactly the counter a real missing arm is diagnosed by, spent on a
     /// frame the host knew about all along.
     ///
-    /// The list is `AgentSessionEvent` as `@oh-my-pi/pi-coding-agent@18.13.3` declares it
+    /// The list is `AgentSessionEvent` as `@oh-my-pi/pi-coding-agent@19.1.0` declares it
     /// (`src/session/agent-session-events.ts`), transcribed: the core `AgentEvent` members first,
     /// then the session's own. Re-derive it against a new SDK, and add the member here when it
     /// arrives - a member missing from this list is a member the host will forward as unknown.
@@ -281,7 +285,8 @@ mod tests {
             "tool_execution_update",
             "tool_execution_end",
             "tool_stream_update",
-            // The session's own members.
+            // The session's own members (19.x's run lifecycle: one `agent_end`, a pause per loop).
+            "agent_pause",
             "auto_compaction_start",
             "auto_compaction_end",
             "manual_compaction_start",

@@ -92,7 +92,7 @@ export async function dispatchTan(
   const parentMnemopiSessionState = session.getMnemopiSessionState()
   const toolNames = session.getEnabledToolNames()
   const activeToolNames = session.getActiveToolNames()
-  const mountedToolNames = session.getMountedXdevToolNames()
+  const mountedToolNames = session.getMountedToolCommandNames()
   const modelRegistry = session.modelRegistry
   const preparedExtensions = session.preparedExtensions
   const extensionPaths = session.extensionPaths
@@ -203,11 +203,11 @@ export async function dispatchTan(
             })
             if (signal.aborted) throw new Error('Aborted before execution')
             await clone.prompt(trimmed, { attribution: 'user' })
-            await clone.waitForIdle()
-            while (clone.hasPendingAsyncWork()) {
-              if (signal.aborted) throw new Error('Aborted while settling descendant work')
-              await untilAborted(signal, clone.settleAsyncWork())
-            }
+            // The run stays open while any background work can resume it, so one wait covers the
+            // settle chain: `waitForRunEnd` begins with `waitForIdle` and loops until no run is
+            // active (or the clone is disposed). Abort already ends a paused run in 19.x.
+            if (signal.aborted) throw new Error('Aborted while settling descendant work')
+            await untilAborted(signal, clone.waitForRunEnd())
             return lastAssistantText(clone) || '(no output)'
           } finally {
             signal.removeEventListener('abort', abortClone)

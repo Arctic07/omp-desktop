@@ -353,6 +353,14 @@ export interface ToolDetails {
    * exists; a `bash` call is the only tool the engine reports this for.
    */
   minimized?: ToolMinimized
+  /**
+   * The one engine tool a `bash` call executed as a command word.
+   *
+   * A discoverable plugin tool runs as a bash command, so the row is `bash` and this name is what
+   * finds the plugin's `tool.card`. Absent for a shell line, a `--help` dispatch, and a line that
+   * ran more than one tool.
+   */
+  toolCommand?: string
 }
 
 /** One shell call's minimizer record: the filter that ran and the bytes before and after. */

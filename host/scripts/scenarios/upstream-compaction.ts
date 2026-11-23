@@ -128,10 +128,10 @@ export const upstreamCompactionScenarios: Record<string, Scenario> = {
   /**
    * The same arrival while the engine is paused for background work.
    *
-   * A running job makes the settle a scheduling pause (`agent_end` with `awaitingAsyncWork`), and
-   * the job's own report resumes the turn. Adopting on that ending is what keeps the wake from
-   * re-sending the history the endpoint just refused; the engine owns the continuation there, so
-   * the host must not add its resume nudge beside it.
+   * A running job makes the settle a scheduling pause (`agent_pause` with `yielded` and
+   * `awaiting`), and the job's own report resumes the run. Adopting on that pause is what keeps
+   * the wake from re-sending the history the endpoint just refused; the engine owns the
+   * continuation there, so the host must not add its resume nudge beside it.
    */
   async 'upstream-compaction-paused'(host, report, provider) {
     fs.mkdirSync(workspace, { recursive: true })
@@ -159,25 +159,31 @@ export const upstreamCompactionScenarios: Record<string, Scenario> = {
     )
     report.record('paused.ack', ack.success === true, JSON.stringify(ack.data ?? ack).slice(0, 200))
 
-    // The summary lands while the job is still running: this settle is a pause, not an ending.
+    // The summary lands while the job is still running: the model loop stops as a pause, not as
+    // the run's ending.
     await host.waitFor(
-      'agent_end',
-      frame => frame.sessionId === sessionId && frame.awaitingAsyncWork === true,
+      'agent_pause',
+      frame =>
+        frame.sessionId === sessionId && frame.yielded === true && frame.awaiting === true,
       120_000,
     )
     const paused = host
-      .of('agent_end')
-      .find(frame => frame.sessionId === sessionId && frame.awaitingAsyncWork === true) as Record<string, unknown> | undefined
-    report.record('paused.awaiting-async-work', paused !== undefined && paused.isTerminal === false, JSON.stringify(paused ?? {}).slice(0, 200))
+      .of('agent_pause')
+      .find(frame => frame.sessionId === sessionId && frame.yielded === true && frame.awaiting === true) as
+      | Record<string, unknown>
+      | undefined
+    report.record(
+      'paused.awaiting-async-work',
+      paused !== undefined && paused.awaiting === true,
+      JSON.stringify(paused ?? {}).slice(0, 200),
+    )
 
-    // The adoption starts on that pause; the job's report then resumes the turn, so the file is
-    // read after the terminal ending that follows.
+    // The adoption starts on that pause; the job's report then resumes the run, so the file is
+    // read after the run's own ending, which follows it.
     await host.waitFor(
       'agent_end',
       frame =>
-        frame.sessionId === sessionId &&
-        frame.awaitingAsyncWork !== true &&
-        host.of('agent_end').indexOf(frame) > endingsBefore,
+        frame.sessionId === sessionId && host.of('agent_end').indexOf(frame) >= endingsBefore,
       180_000,
     )
 

@@ -69,7 +69,6 @@ export const UI_SURFACE: Readonly<Record<string, string>> = {
   tree: 'the workspace rail’s conversation list',
   clear: 'a new conversation in the same workspace',
   delete: 'the workspace rail’s conversation menu',
-  seance: 'the subagent conversation tabs',
   omfg: 'the TTSR rule editor is a terminal overlay; no desktop editor yet',
   // The engine's picker of this session's `local://` files, edited in `$VISUAL`/`$EDITOR`. The
   // desktop has no editor for that namespace: plan mode's own file is reported in the mode panel

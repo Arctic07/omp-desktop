@@ -70,6 +70,7 @@ providers:
       - id: ${OMP_DESKTOP_SMOKE_KEYED_MODEL}
         name: Smoke Keyed Model
         input: [text]
+        reasoning: false
         contextWindow: 128000
         maxTokens: 4096
 `,

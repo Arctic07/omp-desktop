@@ -59,13 +59,13 @@ export const slashScenario: Record<string, Scenario> = {
       frame => frame.type === 'notice' && typeof frame.message === 'string' && frame.message.includes('read'),
     )
     report.record('slash.builtin.output', typeof notice.message === 'string' && notice.message.length > 0, String(notice.message).split('\n').slice(0, 3).join(' | '))
-    // The `/tools` list names mounted devices as `~ xd://<name>`. The redactor used to read the
-    // `d:` as a drive letter and draw `~ x<path>` for each, which is the same fault that turned a
-    // mount notice into `x<path>: unmounted …`; a reader cannot tell what the line is about then.
+    // The `/tools` list names mounted tools as `~ <tool>`, one per line. The redactor used to read
+    // a `xd://` mount's `d:` as a drive letter and draw `~ x<path>`; 19.1 mounts tool commands
+    // instead, and the requirement is the same: a reader has to be able to read the tool's name.
     report.record(
       'slash.builtin.schemeIntact',
-      typeof notice.message === 'string' && /^~ xd:\/\/\S+/m.test(String(notice.message)),
-      String(notice.message).split('\n').filter(line => line.startsWith('~')).join(' | ') || 'no mounted devices listed',
+      typeof notice.message === 'string' && /^~ [A-Za-z_][A-Za-z0-9_.-]*\s*$/m.test(String(notice.message)),
+      String(notice.message).split('\n').filter(line => line.startsWith('~')).join(' | ') || 'no mounted tools listed',
     )
 
     report.record('slash.builtin.noTurn', host.of('agent_start').length === 0, `${host.of('agent_start').length} agent_start frame(s)`)

@@ -610,7 +610,7 @@ function canonicalPath(resolved: string): string {
 /**
  * Whether a path names an internal resource rather than a file.
  *
- * The engine's internal URLs are `scheme://…` or `scheme:…` (`xd://`, `agent://`, `proc://`,
+ * The engine's internal URLs are `scheme://…` or `scheme:…` (`help://`, `agent://`, `proc://`,
  * `history://`, `db.sqlite:table`), and `write` delegates to them. A Windows drive letter is a
  * single-letter scheme before a colon (`C:\…`), which is why the scheme needs at least two
  * characters.

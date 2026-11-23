@@ -15,7 +15,7 @@ import type { SdkBundle } from './sdk.ts'
  * The case under test is the one this host used to answer "nothing to stop" to (2026-10-27, user
  * report: sixteen presses of a stop that never ended the session). A background job keeps running
  * while its result can no longer wake the session - an acknowledged or watched delivery is
- * suppressed - so `hasPendingAsyncWork()` is false with a job still on the manager. The state frame
+ * suppressed - so `wakeSources` is undefined while a job still runs. The state frame
  * publishes every running job as `backgroundJobs`, the screen draws a stop for one, and the stop has
  * to act on it: the busy fact and the cancel are the same set.
  */
@@ -51,19 +51,20 @@ function jobManager(jobs: StubJob[]) {
 /**
  * A session's engine object, as far as these reads go.
  *
- * `pendingAsyncWork` is the engine's own answer about a wake, kept a separate switch because the
- * whole point is the gap between it and the jobs the manager still runs.
+ * `wakeSource` is the engine's own answer about a wake (`agent.wakeSources`), kept a separate
+ * switch because the whole point is the gap between it and the jobs the manager still runs.
  */
 function agentWith(options: {
   jobs?: StubJob[]
-  pendingAsyncWork?: boolean
+  wakeSource?: boolean
   streaming?: boolean
 }) {
   const jobs = jobManager(options.jobs ?? [])
   const agent = {
     isStreaming: options.streaming === true,
     hasAdmittedSubmission: false,
-    hasPendingAsyncWork: () => options.pendingAsyncWork === true,
+    wakeSources:
+      options.wakeSource === true ? { jobs: [], agents: [], queued: true } : undefined,
     getAgentId: () => 'agent-1',
     asyncJobManager: jobs.manager,
     queuedMessageCount: 0,
@@ -81,8 +82,15 @@ const goalIdle = { continuationPending: false } as unknown as LiveSession['goal'
 test('a session running a background job is working, even when its result can no longer wake it', () => {
   const { agent } = agentWith({
     jobs: [{ id: 'bg_12', type: 'bash', label: 'bash', startTime: 1 }],
-    pendingAsyncWork: false,
+    wakeSource: false,
   })
+  assert.equal(isWorking({ agent, subagents: noChildren, goal: goalIdle }), true)
+})
+
+test('a session whose only work is a wake source is working', () => {
+  // The other half of the 19.x read: no turn, no job on the manager, but a wake source is set, so
+  // a stop or a close must still treat the session as busy (`session-stop.ts::isWorking`).
+  const { agent } = agentWith({ wakeSource: true })
   assert.equal(isWorking({ agent, subagents: noChildren, goal: goalIdle }), true)
 })
 
@@ -92,7 +100,7 @@ test('a job count follows the manager, not the wake it may no longer be owed', (
       { id: 'bg_1', type: 'bash', label: 'bash', startTime: 1 },
       { id: 'bg_2', type: 'eval', label: 'eval', startTime: 2 },
     ],
-    pendingAsyncWork: false,
+    wakeSource: false,
   })
   assert.deepEqual(cancellableCounts({ agent, subagents: noChildren }), { subagents: 0, jobs: 2 })
 })
@@ -158,7 +166,7 @@ function stopStub(options: {
       acknowledgeDeliveries: () => 0,
     },
     getAgentId: () => 'agent-1',
-    hasPendingAsyncWork: () => false,
+    wakeSources: undefined,
     yieldQueue: { has: () => false, clear: () => {} },
     clearQueue: () => {
       calls.push('clearQueue')

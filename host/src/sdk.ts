@@ -78,6 +78,7 @@ import type { InternalAvailableSlashCommand } from '@oh-my-pi/pi-coding-agent/sl
 import type { parseSlashCommand } from '@oh-my-pi/pi-coding-agent/slash-commands/helpers/parse'
 import type { RPC_GOAL_CONTINUATION_MODE, RpcGoalController } from '@oh-my-pi/pi-coding-agent/modes/rpc/rpc-goal'
 import type { cfgGoalContinuationModes, cfgGoalEnabled } from '@oh-my-pi/pi-coding-agent/goals/settings'
+import type { cfgToolsIntentTracing } from '@oh-my-pi/pi-coding-agent/tools/settings'
 import type {
   AcpBuiltinSlashCommandResult,
   SlashCommandRuntime,
@@ -115,8 +116,12 @@ export interface InternalUrlLike {
 /** One resolved internal resource, as the router returns it to the read tool. */
 export interface InternalResourceLike {
   url: string
-  content: string
-  contentType: 'text/markdown' | 'application/json' | 'text/plain'
+  /**
+   * Text, or the raw bytes of a binary resource - 19.1's router returns `InternalResource<string |
+   * Buffer>` for every scheme, and `read` renders bytes like a file of the same name and type.
+   */
+  content: string | Buffer
+  contentType: string
   size?: number
   sourcePath?: string
   notes?: string[]
@@ -232,6 +237,12 @@ export interface SdkBundle {
     /** The `goal.continuationModes` value this host adds to drive goal turns without a terminal. */
     readonly rpcContinuationMode: typeof RPC_GOAL_CONTINUATION_MODE
   }
+  /**
+   * Tool-call switches this host sets as a runtime default: `tools.intentTracing` is on in the
+   * interactive TUI and off in SDK processes (`sdk.ts::intentTracingActive`), while every desktop
+   * tool row's title is that intent.
+   */
+  readonly toolSettings: { readonly intentTracing: typeof cfgToolsIntentTracing }
   /** Detect a `/skill:<name>` invocation in a draft, whatever else the draft says. */
   readonly parseSkillInvocation: typeof parseSkillInvocation
   /** Build the user-attributed message a skill invocation is delivered as. */
@@ -602,6 +613,9 @@ export async function loadSdk(): Promise<SdkBundle> {
   const extensionSettings = await import('@oh-my-pi/pi-coding-agent/extensibility/settings')
   const extensionDashboard = await import('@oh-my-pi/pi-coding-agent/modes/components/extensions/state-manager')
   const modeSettings = await import('@oh-my-pi/pi-coding-agent/modes/settings')
+  // Tool-call switches: the desktop pins intent tracing on its sessions (see `session-activate.ts`),
+  // because every tool row's title is the call's own intent.
+  const toolSettings = await import('@oh-my-pi/pi-coding-agent/tools/settings')
   const marketplaceAutoUpdate = await import('@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace-auto-update')
   const capability = await import('@oh-my-pi/pi-coding-agent/capability')
   const mcpCapability = await import('@oh-my-pi/pi-coding-agent/capability/mcp')
@@ -680,6 +694,7 @@ export async function loadSdk(): Promise<SdkBundle> {
       continuationModes: goalSettings.cfgGoalContinuationModes,
       rpcContinuationMode: rpcGoal.RPC_GOAL_CONTINUATION_MODE,
     },
+    toolSettings: { intentTracing: toolSettings.cfgToolsIntentTracing },
     parseSkillInvocation: sdk.parseSkillInvocation,
     buildSkillPromptMessage: sdk.buildSkillPromptMessage,
     skillPromptMessageType: sdk.SKILL_PROMPT_MESSAGE_TYPE,

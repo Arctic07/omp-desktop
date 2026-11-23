@@ -336,20 +336,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## @oh-my-pi/omp-stats@18.20.0 and 8 more
+## @oh-my-pi/omp-stats@19.1.0 and 8 more
 
 Declared license: MIT
 
 Also applies to:
 
-- `@oh-my-pi/omptype@18.20.0`
-- `@oh-my-pi/pi-catalog@18.20.0`
-- `@oh-my-pi/pi-mnemopi@18.20.0`
-- `@oh-my-pi/pi-natives-win32-x64@18.20.0`
-- `@oh-my-pi/pi-natives@18.20.0`
-- `@oh-my-pi/pi-utils@18.20.0`
-- `@oh-my-pi/pi-wire@18.20.0`
-- `@oh-my-pi/snapcompact@18.20.0`
+- `@oh-my-pi/omptype@19.1.0`
+- `@oh-my-pi/pi-catalog@19.1.0`
+- `@oh-my-pi/pi-mnemopi@19.1.0`
+- `@oh-my-pi/pi-natives-win32-x64@19.1.0`
+- `@oh-my-pi/pi-natives@19.1.0`
+- `@oh-my-pi/pi-utils@19.1.0`
+- `@oh-my-pi/pi-wire@19.1.0`
+- `@oh-my-pi/snapcompact@19.1.0`
 
 ```text
 MIT License
@@ -376,15 +376,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## @oh-my-pi/pi-agent-core@18.20.0 and 3 more
+## @oh-my-pi/pi-agent-core@19.1.0 and 3 more
 
 Declared license: MIT
 
 Also applies to:
 
-- `@oh-my-pi/pi-ai@18.20.0`
-- `@oh-my-pi/pi-coding-agent@18.20.0`
-- `@oh-my-pi/pi-tui@18.20.0`
+- `@oh-my-pi/pi-ai@19.1.0`
+- `@oh-my-pi/pi-coding-agent@19.1.0`
+- `@oh-my-pi/pi-tui@19.1.0`
 
 ```text
 MIT License

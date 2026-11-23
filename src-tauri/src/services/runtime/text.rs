@@ -173,7 +173,7 @@ fn bearer_length(chars: &[char], index: usize) -> Option<usize> {
 
 /// Whether the run at `index` opens a Windows drive path rather than the tail of a URL scheme.
 ///
-/// `xd://`, `local://`, `agent://` and `https://` all present a `d:` / `l:` / `t:` / `s:` shape
+/// `help://`, `local://`, `agent://` and `https://` all present a `p:` / `l:` / `t:` / `s:` shape
 /// that the drive rule alone cannot tell from `C:\`: the letter has to open the word (it must not
 /// sit inside one) and the colon must not be the scheme separator, which no drive uses.
 fn is_drive_path(chars: &[char], index: usize) -> bool {
@@ -254,14 +254,14 @@ mod sanitize_tests {
         assert!(sanitize_message("rm /home/user/.aws/credentials").contains("<path>"));
     }
 
-    /// The regression this covers: `xd://` read as a drive path, so the tool list the reader saw
-    /// said `~ x<path>` for every mounted device and a mount notice said `x<path>: unmounted …`.
+    /// The regression this covers: an internal URL was read as a drive path, so the tool list the
+    /// reader saw said `~ h<path>` for every mounted tool and a mount notice said `h<path>: …`.
     /// A drive letter opens a word and never carries a scheme separator.
     #[test]
     fn a_url_scheme_is_not_a_drive_path() {
         for text in [
-            "xd://: unmounted ast_edit, debug, lsp",
-            "~ xd://lsp",
+            "read help://tools/read",
+            "~ help://lsp",
             "read local://PLAN.md",
             "agent://all broadcast",
             "proc://bg_1 status",

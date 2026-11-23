@@ -755,41 +755,43 @@ fn ids_are_unique_across_projectors_of_one_conversation() {
 
 /// The regression this covers (2026-10-30): an answer finished, the engine had nothing left to do
 /// but wait on a background job, and the desktop kept drawing 「运行中」 with a clock under it — for
-/// hours. The engine ends such a run with `isTerminal: false` (a result may still resume the
-/// session) but also `awaitingAsyncWork: true`, which is its own word for "the turn is over, only a
-/// job can wake me", and its TUI reads exactly this frame as idle. Treating every non-terminal end
-/// as "still running" left the turn open forever whenever the wake never came — a cancelled or
-/// suppressed job delivers none — and the stall watchdog will not reclaim a conversation that has
-/// pending async work.
+/// hours. The 19.1 engine states that shape as an `agent_pause` with `yielded: true` and
+/// `awaiting: true`, which is its own word for "the turn is over, only outside work can wake me".
+/// Treating every pause as "still running" leaves the turn open forever whenever the wake never
+/// comes — a cancelled or suppressed job delivers none — and the stall watchdog will not reclaim a
+/// conversation that has a wake source.
 #[test]
 fn a_run_waiting_only_on_background_work_ends_its_turn() {
-    // The ordinary ending, and an end that carries no flag at all (an older host): both close.
-    assert!(ends_turn(&json!({"type": "agent_end", "isTerminal": true})));
+    // The run's single `agent_end` closes the turn; a stamped superseded edge does not.
     assert!(ends_turn(&json!({"type": "agent_end"})));
-
-    // A run the agent resumes by itself — a retry, a compaction continuation, a stop-time reminder —
-    // is not an ending: closing there would end a row the turn is still filling.
     assert!(!ends_turn(&json!({
         "type": "agent_end",
-        "isTerminal": false,
-        "yielded": false,
-    })));
-
-    // An end whose run has already been replaced is not an ending for this turn: the host stamps
-    // the engine's live reading, and a streaming session means a newer run owns the row.
-    assert!(!ends_turn(&json!({
-        "type": "agent_end",
-        "isTerminal": true,
         "sessionStreaming": true,
     })));
 
-    // Only a background result can resume this one, so the turn is over as far as the reader is
+    // A run the agent resumes by itself — a retry, a compaction continuation, a stop-time reminder —
+    // is a pause that is not waiting on outside work: closing there would end a row the turn is
+    // still filling. Queued input on its way to the next loop is the same.
+    assert!(!ends_turn(
+        &json!({"type": "agent_pause", "yielded": false, "awaiting": false})
+    ));
+    assert!(!ends_turn(
+        &json!({"type": "agent_pause", "yielded": true, "awaiting": false})
+    ));
+    // A pause delivered while a newer run streams is not this turn's ending.
+    assert!(!ends_turn(&json!({
+        "type": "agent_pause",
+        "yielded": true,
+        "awaiting": true,
+        "sessionStreaming": true,
+    })));
+
+    // Only outside work can resume this one, so the turn is over as far as the reader is
     // concerned; the job's own result opens the next turn when (and if) it arrives.
     assert!(ends_turn(&json!({
-        "type": "agent_end",
-        "isTerminal": false,
+        "type": "agent_pause",
         "yielded": true,
-        "awaitingAsyncWork": true,
+        "awaiting": true,
     })));
 }
 
@@ -812,8 +814,9 @@ fn a_notice_keeps_the_code_its_event_carried() {
     assert_eq!(recap["message"], "Where things stand: the parser is fixed.");
 
     // The engine's own notices carry no code, and none is invented for them.
-    let engine =
-        notice_frame(&json!({"type": "notice", "level": "warning", "message": "Mounted xd://lsp"}));
+    let engine = notice_frame(
+        &json!({"type": "notice", "level": "warning", "message": "Tool commands: added lsp"}),
+    );
     assert_eq!(engine.get("code"), None);
     assert_eq!(engine["level"], "warning");
 

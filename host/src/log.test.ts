@@ -10,17 +10,18 @@ import { isToolMountNotice } from './session-view.ts'
  * The one thing it must never do is rewrite ordinary text the reader needs to read. Two regressions
  * are pinned here, and both were visible on screen before this file existed:
  *
- * - `xd://` (and every other scheme) read as a Windows drive path, so a mount notice arrived as
- *   `x<path>: unmounted ast_edit, debug, lsp` and the `/tools` list drew `~ x<path>` for each of
- *   its three mounted devices.
- * - the engine's `xd://` mount announcements themselves: one pair per toolset swap, naming devices
- *   the reader never addressed.
+ * - a URL scheme read as a Windows drive path: `help://` (`p:` before the separator), `local://`
+ *   (`l:`), `agent://` (`t:`) and `https://` (`s:`) each present a shape the drive rule alone
+ *   cannot tell from `C:\`, so a `/tools` line arrived as `~ <path>` and a mount notice as
+ *   `<path>: …`.
+ * - the engine's tool-command mount announcements themselves: one pair per toolset swap, naming
+ *   tools the reader never addressed.
  */
 
 test('a URL scheme is not a Windows drive path', () => {
   for (const text of [
-    'xd://: unmounted ast_edit, debug, lsp',
-    '~ xd://lsp',
+    'read help://tools/read',
+    '~ help://lsp',
     'read local://PLAN.md',
     'agent://all broadcast',
     'proc://bg_1 status',
@@ -44,8 +45,11 @@ test('a drive path is still redacted, wherever it opens a word', () => {
 })
 
 test('only the mount announcement is dropped, and only by its source', () => {
-  assert.equal(isToolMountNotice({ type: 'notice', source: 'xdev', message: 'xd://: mounted lsp' }), true)
+  assert.equal(
+    isToolMountNotice({ type: 'notice', source: 'toolCommands', message: 'Tool commands: added lsp' }),
+    true,
+  )
   assert.equal(isToolMountNotice({ type: 'notice', source: 'slash-command', message: 'tools' }), false)
   assert.equal(isToolMountNotice({ type: 'notice', message: 'no source' }), false)
-  assert.equal(isToolMountNotice({ type: 'error', source: 'xdev' }), false)
+  assert.equal(isToolMountNotice({ type: 'error', source: 'toolCommands' }), false)
 })
