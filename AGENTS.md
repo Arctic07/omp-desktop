@@ -33,7 +33,7 @@ Everything runnable here comes from a build artifact, so a source change without
 
 ## Engine patches
 
-`patches/@oh-my-pi__*`, pinned by `pnpm.patchedDependencies`, are this repository's own edits to the pinned engine: the Go-transport wording behind provider retries and the mid-stream transport class that resumes a turn after committed text. Every upgrade starts by checking whether the new version ships that behaviour itself — `host/src/provider-transport-errors.test.ts` covers the classifier, and `turn-recovery.ts`'s transport class is read by hand — then deletes the patch that no longer earns its place. A patch still needed is re-created against the new version, never carried over unverified; `pnpm install` refusing to apply one is the tripwire.
+`patches/@oh-my-pi__*`, pinned by `pnpm.patchedDependencies`, are this repository's engine edits: the Go-transport wording behind retries, the mid-stream class resuming after committed text, and the relay native-host name `19.1.0` cannot resolve (manifest imports an unshipped `browser-relay/` sibling). Every upgrade checks whether the new version ships it — `provider-transport-errors.test.ts` covers the classifier, `turn-recovery.ts`'s class is read by hand, a broken relay import fails `host/`'s first `bun test` — then deletes what no longer earns its place. A needed hunk is re-created against the new version, never carried over; `pnpm install` refusing to apply one is the tripwire.
 
 ## Instances
 

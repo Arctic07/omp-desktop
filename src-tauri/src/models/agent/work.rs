@@ -62,6 +62,14 @@ pub(crate) struct ToolDetails {
     /// projection (`services/runtime/mod.rs::tool_details`) bounds the label and keeps the counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) minimized: Option<ToolMinimized>,
+    /// The one engine tool a `bash` call executed as a command word, when it dispatched exactly one.
+    ///
+    /// A discoverable tool (a plugin's own, for one) runs as a bash command, so the row is `bash`
+    /// and this name is what finds the plugin's card (`src/src/state/plugin-slot-rules.ts`). A
+    /// plain shell line, a `--help` dispatch, and a line that ran two different tools name none:
+    /// reading the command text instead would claim calls for a word the engine never dispatched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tool_command: Option<String>,
 }
 
 /// One shell call's minimizer record: the filter that ran and the bytes it took the output from

@@ -279,32 +279,28 @@ test('a tool card may not name an engine tool, and one name belongs to one plugi
   assert.equal(later.pluginId, 'other')
 })
 
-test('a plugin tool is looked up by the device it ran, not by its carrier', () => {
-  // The carrier: a plugin tool runs as an `xd://<name>` call on `read` (its docs) or `write` (the
-  // call itself), so the row's own name would never match a registration.
-  assert.equal(toolCardNameOf({ name: 'write', argsText: '{"path":"xd://insert_snippet"}' }), 'insert_snippet')
-  assert.equal(toolCardNameOf({ name: 'read', argsText: '{"path":"xd://insert_snippet"}' }), 'insert_snippet')
-  assert.equal(
-    toolCardNameOf({ name: 'write', argsText: '{"content":"{}","path":"xd://insert_snippet"}' }),
-    'insert_snippet',
-  )
+test('a plugin tool is looked up by the tool the engine dispatched, not by its carrier', () => {
+  // The carrier: a discoverable plugin tool is mounted as a bash command (`insert_snippet --flag
+  // …`), so the row's own name would never match a registration; the engine's dispatch record is
+  // what names the tool that ran.
+  assert.equal(toolCardNameOf({ name: 'bash', command: 'insert_snippet' }), 'insert_snippet')
+  assert.equal(toolCardNameOf({ name: '  bash  ', command: '  insert_snippet ' }), 'insert_snippet')
+  assert.equal(toolCardNameOf({ name: 'insert_snippet', command: 'insert_snippet' }), 'insert_snippet')
 
-  // Everything a card must not claim keeps the name the row has.
-  assert.equal(toolCardNameOf({ name: 'read', argsText: '{"path":"src/index.ts"}' }), 'read')
-  assert.equal(toolCardNameOf({ name: 'read', argsText: '{"path":"skill://omp-demo"}' }), 'read')
-  assert.equal(toolCardNameOf({ name: 'read', argsText: '{"path":"rule://omp-demo"}' }), 'read')
-  assert.equal(toolCardNameOf({ name: 'write', argsText: '' }), 'write')
-  assert.equal(toolCardNameOf({ name: 'write', argsText: 'not json' }), 'write')
-  assert.equal(toolCardNameOf({ name: 'write', argsText: '{"path":"xd://"}' }), 'write')
-  assert.equal(toolCardNameOf({ name: 'write', argsText: '{"path":42}' }), 'write')
-  assert.equal(toolCardNameOf({ name: 'bash', argsText: '{"path":"xd://insert_snippet"}' }), 'bash')
+  // Everything a card must not claim keeps the name the row has, in particular a shell line whose
+  // first word merely looks like a tool: only the engine's record may attach a card.
+  assert.equal(toolCardNameOf({ name: 'bash' }), 'bash')
+  assert.equal(toolCardNameOf({ name: 'bash', command: '' }), 'bash')
+  assert.equal(toolCardNameOf({ name: 'bash', command: '   ' }), 'bash')
+  assert.equal(toolCardNameOf({ name: 'read' }), 'read')
 
   // The name a row derives is the one a registration answers, so the pair lines up end to end.
   const mine = entryOf(
     slotEntryFor(OWNER, { slot: 'tool.card', component: Component, toolName: 'insert_snippet' }, [], 1),
   )
-  const name = toolCardNameOf({ name: 'write', argsText: '{"path":"xd://insert_snippet"}' })
+  const name = toolCardNameOf({ name: 'bash', command: 'insert_snippet' })
   assert.equal(toolCardEntryFor([mine], name), mine)
+  assert.equal(toolCardEntryFor([mine], toolCardNameOf({ name: 'bash', command: 'git' })), null)
 })
 
 /* ------------------------------------------------------------------ dispatch */

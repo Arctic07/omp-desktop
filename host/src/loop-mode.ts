@@ -7,7 +7,7 @@
  * (`modes/loop-limit`, `modes/loop-condition`) — this file only owns the part the terminal's input
  * controller owned: which prompt is repeating, and when the next iteration is due.
  *
- * A turn ending is the host's event to act on (`agent_end` with `isTerminal !== false`); a stop
+ * A turn ending is the host's event to act on (the run's `agent_end`); a stop
  * pauses the loop instead of dropping it, which is the terminal's Esc.
  */
 
@@ -253,7 +253,7 @@ export async function continueLoop(
   }
   const prompt = state.prompt
   // Submit without waiting for the turn: the next iteration is decided by that turn's own ending,
-  // which arrives as the next `agent_end`. Waiting here would hold the flag until the turn settled
+  // which arrives as the run's `agent_end`. Waiting here would hold the flag until the turn settled
   // and the ending it needs would be dropped as a re-entry.
   state.running = true
   void session.prompt(prompt, { synthetic: true }).catch((error: unknown) => {

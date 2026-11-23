@@ -340,3 +340,47 @@ fn an_oversized_minimizer_label_is_bounded() {
         minimized.filter
     );
 }
+
+/// A bash line that ran exactly one mounted tool names it — that name is how a plugin card finds
+/// its row. A shell line, a `--help` dispatch, and a line that ran two tools name none: a card
+/// must not claim a call the engine did not dispatch to it.
+#[test]
+fn a_single_executed_tool_command_names_the_card() {
+    let one = json!({
+        "toolCommands": [
+            { "tool": "insert_snippet", "mode": "execute", "exitCode": 0 },
+            { "tool": "insert_snippet", "mode": "help", "exitCode": 0 },
+        ],
+    });
+    assert_eq!(
+        tool_details(Some(&one))
+            .and_then(|details| details.tool_command)
+            .as_deref(),
+        Some("insert_snippet")
+    );
+
+    let two = json!({
+        "toolCommands": [
+            { "tool": "insert_snippet", "mode": "execute", "exitCode": 0 },
+            { "tool": "git_status", "mode": "execute", "exitCode": 0 },
+        ],
+    });
+    assert!(
+        tool_details(Some(&two)).is_none(),
+        "two tools have no single card, and no other field makes this details object"
+    );
+
+    let help_only = json!({
+        "toolCommands": [{ "tool": "insert_snippet", "mode": "help", "exitCode": 0 }],
+    });
+    assert!(
+        tool_details(Some(&help_only)).is_none(),
+        "help runs nothing"
+    );
+
+    let shell = json!({ "output": "…" });
+    assert!(
+        tool_details(Some(&shell)).is_none(),
+        "a shell line dispatches no tool"
+    );
+}

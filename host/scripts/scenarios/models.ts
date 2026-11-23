@@ -156,10 +156,14 @@ export const modelsScenarios: Record<string, Scenario> = {
       JSON.stringify(bogus).slice(0, 180),
     )
 
-    // A model with no reasoning surface answers with no stops at all - not with `auto`, and not with
-    // the padded `off`/`auto` pair that used to draw a strength slider over a model that cannot
-    // think. The fixture's second model carries no `reasoning:` line, so the engine reads it as
-    // `false` (2026-10-29, user report: an unchecked "supports reasoning" box still offered `max`).
+    // A model with an explicit `reasoning: false` answers with no stops at all - not with `auto`,
+    // and not with the padded `off`/`auto` pair that used to draw a strength slider over a model
+    // that cannot think (2026-10-29, user report: an unchecked "supports reasoning" box still
+    // offered `max`). 19.1 changed what an *absent* flag means: `buildModel` now counts an
+    // API-inferred thinking ladder as reasoning support (`reasoning: spec.reasoning === true ||
+    // policy.thinking !== undefined`, a provisional ladder), so the opt-out has to be stated and
+    // the fixture's second model states it. Reading absence as `false` is no longer the engine's
+    // rule for an OpenAI-compatible model.
     const plainSelector = { provider: OMP_DESKTOP_SMOKE_KEYED_PROVIDER, modelId: OMP_DESKTOP_SMOKE_KEYED_MODEL }
     const plainResponse = await host.response(host.send({ type: 'session_set_model', sessionId, ...plainSelector }))
     const plainState = ((plainResponse.data ?? {}) as Record<string, unknown>).state as Record<string, unknown> | undefined

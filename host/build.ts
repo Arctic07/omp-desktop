@@ -77,7 +77,7 @@ const BUNDLE_DIR = path.join(distDir, BUNDLE_DIRNAME)
  * which the pipeline does not export: it reads `packages/<dir>/package.json` for each entry, so a
  * package it names but this map does not link fails the build with ENOENT (the 18.6.1 SDK added
  * `catalog`). Re-check this map against that list on every SDK bump - it was last checked against
- * 18.10.3, whose list is still these seven.
+ * 19.1.0, whose list is still these seven.
  */
 const BUNDLED_PACKAGES: Record<string, string> = {
   agent: '@oh-my-pi/pi-agent-core',

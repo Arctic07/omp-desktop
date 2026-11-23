@@ -3,8 +3,8 @@
  *
  * The engine's own non-terminal implementation is ACP's `#applyModeChange` /
  * `#handleAcpPlanProposal`, and this module follows it: plan mode is session state
- * (`setPlanModeState`) plus a plan-proposal handler that consumes the agent's `xd://propose`
- * write, asks the reader to approve or refine, and on approval hands the plan to the next turn as
+ * (`setPlanModeState`) plus a plan-proposal handler that consumes the agent's `propose` command,
+ * asks the reader to approve or refine, and on approval hands the plan to the next turn as
  * context. The tool partition and the plan system prompt are the session's own (they read this
  * state), so nothing here re-implements the read-only guarantee.
  *
@@ -94,7 +94,7 @@ async function askApproval(ui: UiBridge, title: string, content: string): Promis
 }
 
 /**
- * Runs the approval dialog for a plan and answers what the agent's `xd://propose` call gets.
+ * Runs the approval dialog for a plan and answers what the agent's `propose` call gets.
  *
  * The three branches are the engine's ACP branches verbatim: a rejection keeps plan mode active
  * and points the next planning turn at the reviewed file; an approval clears the handler and the
@@ -155,7 +155,7 @@ function proposalResult(
         type: 'text',
         text: approved
           ? `Plan approved: ${details.planFilePath}. Execute it.`
-          : `Plan refinement requested. Update the plan file, then write ${normalizePlanTitle(details.title).title} to xd://propose again when ready.`,
+          : `Plan refinement requested. Update the plan file, then submit ${normalizePlanTitle(details.title).title} with \`propose\` again when ready.`,
       },
     ],
     details,
@@ -166,7 +166,8 @@ function proposalResult(
  * Wires this conversation for plan mode and installs its proposal handler.
  *
  * The handler is what makes the mode a loop instead of a dead end: the plan prompt tells the agent
- * to finish by writing the plan title to `xd://propose`, and this is the other end of that write.
+ * to finish by submitting the plan title with the `propose` command, and this is the other end of
+ * that call.
  */
 function activate(session: AgentSession, ui: UiBridge, planFilePath: string, reentry: boolean): void {
   const previous = session.getPlanModeState()

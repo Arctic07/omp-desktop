@@ -32,7 +32,7 @@
  *   their own message, and that answer is theirs to read - it is never turned into a compaction;
  * - the conversation is idle. A live turn is left alone; its own ending re-runs this check.
  *
- * A turn the engine pauses for background work ends on `agent_end` tagged `awaitingAsyncWork`: the
+ * A turn the engine pauses for background work ends on an `agent_pause` with `awaiting`: the
  * job's report resumes it. That is still an ending a summary can arrive on, and the one where
  * adopting matters most - the resumed turn would otherwise re-send the history the endpoint just
  * refused - so it is adopted there too, without the resume nudge, which the pending wake already

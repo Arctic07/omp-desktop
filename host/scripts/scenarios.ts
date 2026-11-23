@@ -86,7 +86,11 @@ export const scenarios: Record<string, Scenario> = {
 
     await host.waitFor('agent_end', frame => frame.type === 'agent_end', 180_000)
     const agentEnd = host.of('agent_end')[0] as Record<string, unknown>
-    report.record('agent_end.isTerminal', agentEnd.isTerminal !== false, JSON.stringify(agentEnd))
+    report.record(
+      'agent_end.shape',
+      Array.isArray(agentEnd.messages) && !('isTerminal' in agentEnd),
+      JSON.stringify(agentEnd).slice(0, 160),
+    )
     const deltas = host.of('message_update').length
     report.record('streaming', deltas > 0, `${deltas} message_update frame(s)`)
 

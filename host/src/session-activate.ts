@@ -88,6 +88,23 @@ export interface SessionActivatePort {
   refreshCommands: (live: LiveSession, publishState: boolean) => Promise<void>
 }
 
+/**
+ * The settings a desktop session is created with: the reader's own, or an overlay that pins intent
+ * tracing on.
+ *
+ * `createAgentSession` captures `tools.intentTracing` while it runs (`sdk.ts::intentTracingActive`),
+ * and its default is `true`, so a runtime override applied afterwards only flips `isConfigured`
+ * while the effective value stays the same - `Settings::#fireIfChanged` sees no change, the agent
+ * keeps the `false` it captured, and tool schemas never carry the intent field. The pin therefore
+ * has to be part of the settings handed to creation. An explicit configuration is passed through
+ * untouched, so a reader who turned intent tracing off keeps it off.
+ */
+export function desktopSessionSettings<
+  S extends { overlay(overrides: Record<string, unknown>): S },
+>(base: S, intentTracing: { isConfigured(scope: NoInfer<S>): boolean }): S {
+  return intentTracing.isConfigured(base) ? base : base.overlay({ 'tools.intentTracing': true })
+}
+
 /** Builds the live session around an already-open manager and subscribes to its events. */
 export async function activateSession(
   port: SessionActivatePort,
@@ -131,10 +148,15 @@ export async function activateSession(
   // carries the session's own directory, because that is how the application matches a terminal to a
   // workspace.
   const pipe: SessionPipe = { events: null, ownerSessionFile: opened }
+  // `tools.intentTracing` is on in the interactive TUI and off in SDK processes
+  // (`sdk.ts::intentTracingActive`), but every desktop tool row draws and searches by that intent
+  // (`ConversationToolRow`, and `intent_text` in the Rust projection). The pin has to be in the
+  // settings handed to creation; see {@link desktopSessionSettings}.
+  const settings = desktopSessionSettings(port.services.settings, port.sdk.toolSettings.intentTracing)
   const created = await port.sdk.createAgentSession({
     cwd,
     agentDir: port.paths.agentDir,
-    settings: port.services.settings,
+    settings,
     authStorage: port.services.auth,
     modelRegistry: port.services.registry,
     sessionManager: manager,
@@ -343,16 +365,24 @@ export async function activateSession(
       // turn. One check followed by one of the two, never both, and the loop's next iteration is
       // decided by whichever turn ends next.
       //
-      // A summary also arrives on the ending the engine pauses for background work
-      // (`awaitingAsyncWork`): that job's report resumes the turn, so the summary is adopted there
-      // as well - the case where skipping it would re-send the refused history on the wake - and
-      // the engine's own continuation carries on from the compacted context.
-      const endsTurn = frame.type === 'agent_end' && (frame.isTerminal !== false || frame.awaitingAsyncWork === true)
-      if (endsTurn) {
-        const terminal = frame.isTerminal !== false
+      // The engine's run lifecycle changed in 19.1: every model loop that stops while the run goes
+      // on emits `agent_pause` (with `yielded`/`awaiting`), and a single `agent_end` states that
+      // nothing can resume the run. A pause where the model finished its turn and only outside work
+      // (a background job, a child agent, a peer message) can resume it is the old
+      // `agent_end`+`awaitingAsyncWork` shape: the turn is over, and the wake opens the next one.
+      // A pause that continues the model's own work (retry, compaction, a stop-time reminder) keeps
+      // the turn open.
+      const runEnded = frame.type === 'agent_end'
+      const pausedOnOutsideWork =
+        frame.type === 'agent_pause' && frame.yielded === true && frame.awaiting === true
+      //
+      // A summary also arrives on that pause: that job's report resumes the turn, so the summary is
+      // adopted there as well - the case where skipping it would re-send the refused history on the
+      // wake - and the engine's own continuation carries on from the compacted context.
+      if (runEnded || pausedOnOutsideWork) {
         void (async () => {
-          const adopted = await adoptUpstreamCompaction(live, { continueAfter: terminal })
-          if (adopted || !terminal) return
+          const adopted = await adoptUpstreamCompaction(live, { continueAfter: runEnded })
+          if (adopted || !runEnded) return
           // The terminal's own controller is not here to re-submit the loop prompt.
           await continueLoop(created.session, (line) => {
             created.session.emitNotice('info', line, 'loop')
@@ -367,23 +397,24 @@ export async function activateSession(
       // event, not as a turn edge: the mode strip reads the state snapshot, so it is republished
       // here instead of waiting for whatever turn happens next.
       if (frame.type === 'goal_updated') emitSessionState(live)
-      // The engine's `xd://` mount churn is its terminal's status line, not this conversation's
+      // The engine's tool-command mount churn is its terminal's status line, not this conversation's
       // record. It announces every toolset swap - so entering and leaving vibe or plan mode writes
-      // a pair of `xd://: unmounted …` / `xd://: mounted …` lines into the composer - and it names
-      // devices the reader never addressed: the mode strip and `/tools` are where the tool surface
+      // a pair of `Tool commands: added …; removed …` lines into the composer - and it names
+      // tools the reader never addressed: the mode strip and `/tools` are where the tool surface
       // is read. The model still learns about the delta through the engine's own prompt path
-      // (`#pendingXdevMountDelta` rides the next prompt), so nothing is lost by dropping the line.
+      // (`#pendingToolCommandMountDelta` rides the next prompt), so nothing is lost by dropping the line.
       if (!isToolMountNotice(frame)) {
-        // An `agent_end` can be delivered for a run that is already replaced: the engine defers it
-        // until its prompt unwinds (`agent-session.ts::#flushPendingAgentEnd`), so a post-turn
+        // An `agent_end` (or a `agent_pause`) can be delivered for a run that is already replaced:
+        // the engine defers an end until its prompt unwinds (`agent-session.ts`), so a post-turn
         // continuation can be streaming by the time the frame reaches a reader. The engine's own
-        // TUI refuses exactly that frame (`event-controller.ts::#handleAgentEnd` — a streaming
-        // session means this end belongs to a turn a live one has replaced), and this host owes the
-        // projector the same fact: closing the turn on it would tear down the row of the run that
-        // is still going. The engine's live reading travels with the frame; every other frame is
-        // forwarded as it is.
+        // TUI refuses exactly that frame (`event-controller.ts` - a streaming session means this
+        // end belongs to a turn a live one has replaced), and this host owes the projector the same
+        // fact: closing the turn on it would tear down the row of the run that is still going. The
+        // engine's live reading travels with the frame; every other frame is forwarded as it is.
         live.events.emit(
-          frame.type === 'agent_end' ? { ...frame, sessionStreaming: created.session.isStreaming } : frame,
+          frame.type === 'agent_end' || frame.type === 'agent_pause'
+            ? { ...frame, sessionStreaming: created.session.isStreaming }
+            : frame,
         )
       }
       // A session handed back while it was still working is dropped on the edge that ends that

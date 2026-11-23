@@ -293,9 +293,12 @@ export function ConversationToolRow({
 
   // The card a plugin registered for its own tool (`tool.card`), or this one. Registration settled
   // ownership: an engine built-in's name and another plugin's are never mounted here. The name is
-  // read through `toolCardNameOf`, because a plugin tool arrives as an `xd://` device call on one of
-  // the carrier tools rather than under its own name.
-  const cardName = toolCardNameOf({ name: message.name, argsText: message.argsText });
+  // read through `toolCardNameOf`, because a plugin tool arrives as a `bash` command and the host
+  // projects the one tool the engine dispatched as `details.toolCommand`.
+  const cardName = toolCardNameOf({
+    name: message.name,
+    command: message.details?.toolCommand,
+  });
   return (
     <PluginToolCard
       toolName={cardName}

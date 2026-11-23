@@ -156,9 +156,9 @@ export async function startMockProvider(): Promise<MockProvider> {
         return
       }
       // The paused arrival (`upstream-compaction-paused`): a background job is still running when
-      // the endpoint answers with the summary, so the engine settles with `awaitingAsyncWork`
-      // instead of ending the turn. The job is the first tool call; the write is the second, so a
-      // tool result precedes the summary exactly as in the terminal case.
+      // the endpoint answers with the summary, so the engine settles with an `agent_pause`
+      // (`awaiting`) instead of ending the run. The job is the first tool call; the write is the
+      // second, so a tool result precedes the summary exactly as in the terminal case.
       if (command === 'compact-while-background' && target !== '') {
         // Count only the results this command's turn produced: the history the scenario filled
         // beforehand already carries tool results of its own.

@@ -71,7 +71,7 @@ export interface SessionStopPort {
  * (`hasAdmittedSubmission`), so this reads it here instead of inferring it from the turn bit.
  *
  * The first four parts are the engine's own bookkeeping (`isStreaming`, `hasAdmittedSubmission`,
- * `isCompacting`, `hasPendingAsyncWork()`), the fifth is the child set `SubagentWatch.liveIds`
+ * `isCompacting`, `wakeSources`), the fifth is the child set `SubagentWatch.liveIds`
  * answers with, which
  * reads the engine's registry beside the frames (see `subagents.ts` for why the frames cannot be
  * the only source: they only hold what arrived while the record was watching, and a background
@@ -88,7 +88,7 @@ export function isWorking(live: Pick<LiveSession, 'agent' | 'subagents' | 'goal'
     // bit answers "nothing is happening": a stop would say there was nothing to stop while the
     // engine kept paying for it, and a close or an eviction would dispose the session mid-pass.
     live.agent.isCompacting ||
-    live.agent.hasPendingAsyncWork() ||
+    live.agent.wakeSources !== undefined ||
     // A goal continuation is decided at a yield and admitted on the next tick: between the two the
     // engine itself is idle, yet this session has work it is about to do (the engine's RPC host
     // reports the same window as unsettled). Without it a stop or a close here would say "nothing
@@ -96,7 +96,7 @@ export function isWorking(live: Pick<LiveSession, 'agent' | 'subagents' | 'goal'
     live.goal.continuationPending ||
     live.subagents.liveIds(live.agent.getAgentId()).length > 0 ||
     // The jobs this stop can actually cancel, read the same way `cancelBackgroundJobs` reads them.
-    // `hasPendingAsyncWork()` is not that set: it asks whether a running job's result can still wake
+    // `wakeSources` is not that set: it asks whether a running job's result can still wake
     // this session, and a delivery that is acknowledged or watched is suppressed while its job runs
     // on. That gap was a lock-up (2026-10-27, user report): the state frame publishes every running
     // job as `backgroundJobs` - the screen draws a stop for it - while this answer said "nothing to
@@ -176,7 +176,7 @@ function busyFacets(live: Pick<LiveSession, 'agent' | 'subagents'>): string[] {
   // A compaction spends a model call with the turn bit idle, so `turn` alone would call the stop
   // finished while the engine was still paying for it.
   if (live.agent.isCompacting) facets.push('compaction')
-  if (live.agent.hasPendingAsyncWork()) facets.push('background')
+  if (live.agent.wakeSources !== undefined) facets.push('background')
   // The jobs a press could not end, named apart from the engine's wider "still owes a result":
   // `backgroundJobs` in the state frame is this same set, so a screen that drew a stop for one is
   // told here that it is still there (see `isWorking`'s note on the suppression gap).
@@ -191,7 +191,7 @@ function busyFacets(live: Pick<LiveSession, 'agent' | 'subagents'>): string[] {
  *
  * The engine's `abort()` does not reach them. A bash or eval call that outlived its foreground
  * wait is handed to the async job manager (`async/auto-background.ts`), and aborting the turn only
- * stops the turn: the job keeps running, keeps `hasPendingAsyncWork()` true - so the session keeps
+ * stops the turn: the job keeps running, keeps the session's `wakeSources` set - so the session keeps
  * reading busy on every surface that reads that fact - and eventually delivers its result back into
  * the session as a fresh wake. That is the state a user reports as "the stop did nothing and
  * something is still running", and this is the one lever that ends it: the engine's own
@@ -258,7 +258,7 @@ export function cancelBackgroundJob(agent: AgentSession, jobId: string): boolean
  * would answer `aborted:false` to a stop control that has something to stop. An auto-backgrounded
  * bash or eval job is invisible to the child set entirely - it is not a registered subagent - so a
  * stop built on the children alone left it running with nothing to cancel. And the background work
- * the engine reports as `hasPendingAsyncWork` can outlive both. The facts that make a session
+ * the engine reports as `wakeSources` can outlive both. The facts that make a session
  * working are read through the same helper the eviction and release gates use (`isWorking`); a
  * session with none of them is answered `aborted:false`, and republishes its state view on the way
  * out - that answer is a reading of the truth, and it is the only correction a screen whose last

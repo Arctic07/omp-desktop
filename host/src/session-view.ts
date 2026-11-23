@@ -238,8 +238,9 @@ export function sessionStateView(source: SessionViewSource): Record<string, unkn
     modes: modesFor(agent),
     // The engine's own fact that background work can still re-wake this session - the state a
     // detached `task` batch leaves behind, where `isStreaming` alone says "idle" while a stop
-    // still has something to stop.
-    pendingAsyncWork: agent.hasPendingAsyncWork(),
+    // still has something to stop. 19.x names this set `wakeSources`: undefined when nothing can
+    // resume the run.
+    pendingAsyncWork: agent.wakeSources !== undefined,
     // The one fact a stop control can act on beyond the turn: the children this host holds and can
     // cancel, read from the watch that does the cancelling under this session's own agent id, so it
     // is the same set `cancel` walks. The engine's background work above is the wider fact - it can
@@ -322,16 +323,17 @@ export function sessionStateView(source: SessionViewSource): Record<string, unkn
 }
 
 /**
- * Whether an engine event is one of the `xd://` mount announcements.
+ * Whether an engine event is one of the tool-command mount announcements.
  *
- * The engine emits one per toolset change (`session-tools.ts::#notifyXdevMountDelta`), which makes
- * it a status line for its terminal's tool bar: every mode that swaps tools - vibe's director set,
- * plan mode's read-only set - writes a pair of them, and the devices it names (`ast_edit`, `debug`,
- * `lsp`) are the ones this desktop never addresses through the transport. Its content is also not
- * the model's only notice of the change: the same delta rides the next prompt as a system line.
+ * The engine emits one per toolset change (`session-tools.ts::#notifyToolCommandMountDelta`), which
+ * makes it a status line for its terminal's tool bar: every mode that swaps tools - vibe's director
+ * set, plan mode's read-only set - writes a pair of `Tool commands: added …; removed …` lines, and
+ * the tools it names (`ast_edit`, `debug`, `lsp`) are the ones this desktop never addresses through
+ * that transport. Its content is also not the model's only notice of the change: the same delta
+ * rides the next prompt as a system line.
  */
 export function isToolMountNotice(event: Record<string, unknown>): boolean {
-  return event.type === 'notice' && event.source === 'xdev'
+  return event.type === 'notice' && event.source === 'toolCommands'
 }
 
 /** Publishes the state view above on the session's own event pipe. */

@@ -151,7 +151,8 @@ export interface SlotOwnerIdentity {
 }
 
 /**
- * The engine's own tool names, mirrored from `packages/coding-agent/src/tools/builtin-names.ts`.
+ * The engine's own tool names, mirrored from `packages/coding-agent/src/tools/builtin-names.ts`
+ * plus the staged-action commands that file does not list (`tools/resolve.ts`).
  *
  * A renderer's `tool.card` draws *its plugin's* tool, never one of the engine's: a plugin that could
  * skin `read` or `bash` would be drawing a card for a call it does not own. The list is closed, so
@@ -179,7 +180,7 @@ const ENGINE_TOOL_NAMES: Readonly<Record<string, true>> = Object.fromEntries(
     'new_context',
     'security_scan',
     'task',
-    'hub',
+    'wait',
     'todo',
     'web_search',
     'write',
@@ -195,6 +196,12 @@ const ENGINE_TOOL_NAMES: Readonly<Record<string, true>> = Object.fromEntries(
     'think',
     // The legacy alias `normalizeToolName` folds into `grep`.
     'search',
+    // The staged-action commands (plan proposal, preview resolution, Auto-QA), each callable as a
+    // tool and as a bash command word.
+    'propose',
+    'resolve',
+    'reject',
+    'report_issue',
   ].map((name) => [name, true as const]),
 )
 
@@ -453,49 +460,28 @@ export function toolCardEntryFor(
   return entries.find((entry) => entry.slot === 'tool.card' && entry.toolName === toolName) ?? null
 }
 
-/** The two engine tools a plugin's own tool is reached through (`xd://<name>` device calls). */
-const DEVICE_CARRIER_NAMES: Readonly<Record<string, true>> = { read: true, write: true }
-
-/** The device scheme a plugin tool is addressed by. */
-const DEVICE_SCHEME = 'xd://'
+/** The engine tool that carries a mounted tool-command call: `bash` runs every command word. */
+const COMMAND_CARRIER_NAME = 'bash'
 
 /**
  * The name a `tool.card` should be looked up by for one call.
  *
- * A plugin's custom tool does not arrive as a tool of its own name in this build: the engine exposes
- * it as a *device*, so the transcript row is the carrier (`read` for the docs, `write` for the call)
- * and the tool it actually ran is the `xd://<name>` path in its arguments. Looking the card up by
- * the carrier's name would therefore never match anything a plugin registered, which is why the
- * name is read out of the call rather than off the row.
+ * A plugin's custom tool is a *discoverable* tool, so this engine build mounts it as a bash command
+ * (`insert_snippet --flag …`) instead of shipping its schema on every request. The transcript row is
+ * therefore the carrier (`bash`), and the name that ran is the engine's own dispatch record, which
+ * the host projects as `toolCommand` (`runtime/mod.rs::tool_command_name`). Reading the command text
+ * would claim calls for a name that only looks like a command word (`git`, `curl`) without the
+ * engine ever dispatching to a tool, and a line that runs two tools has no single card.
  *
- * Everything else keeps its own name: a carrier call that is not a device (a real `read` of a file),
- * a device that is not a plugin tool (`skill://`, `rule://`), and any tool this build does not route
+ * Everything else keeps its own name: a plain shell line, `--help`, a plugin tool called directly
+ * (a stale transcript, or a nested call through eval), and any tool this build does not route
  * through a carrier all look up under the name the row already has.
  */
-export function toolCardNameOf(call: { name: string; argsText: string }): string {
+export function toolCardNameOf(call: { name: string; command?: string }): string {
   const name = call.name.trim()
-  if (DEVICE_CARRIER_NAMES[name] !== true) return name
-  const args = parseArgsText(call.argsText)
-  if (args === null || typeof args !== 'object' || !('path' in args)) return name
-  const target = args.path
-  if (typeof target !== 'string') return name
-  const trimmed = target.trim()
-  if (!trimmed.startsWith(DEVICE_SCHEME)) return name
-  const device = trimmed.slice(DEVICE_SCHEME.length)
-  return device === '' ? name : device
-}
-
-/** One call's arguments as JSON, or null when they are not JSON this side reads. */
-function parseArgsText(argsText: string): Record<string, unknown> | null {
-  if (argsText.trim() === '') return null
-  try {
-    const parsed: unknown = JSON.parse(argsText)
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
+  if (name !== COMMAND_CARRIER_NAME) return name
+  const command = call.command?.trim() ?? ''
+  return command === '' ? name : command
 }
 
 /* -------------------------------------------------------------------- dispatch */

@@ -146,7 +146,10 @@ use crate::services::log;
 /// `plugins_doctor`, `plugins_auto_update`, `extensions_list` and `extensions_set`, plus the `local`
 /// and `force` arguments on existing ones. Six new commands, so an older host absorbs each frame as
 /// unknown while the plugin page waits on an answer - the same class as 35.
-pub(crate) const PROTOCOL_VERSION: u32 = 40;
+/// 41 carries SDK 19.1's run lifecycle on the event wire: `agent_pause` with `yielded`/`awaiting`
+/// per stopped model loop, and an `agent_end` without `isTerminal`/`awaitingAsyncWork`. An older
+/// host sends neither, so a turn would stay open while the session waits on background work.
+pub(crate) const PROTOCOL_VERSION: u32 = 41;
 /// Connection-class commands (session state and friends) give up after this long.
 pub(crate) const CONNECT_TIMEOUT_MS: u64 = 15_000;
 /// Model catalogue reads re-hydrate provider credentials, which was measured at 3-10 s.
@@ -616,6 +619,7 @@ pub(crate) fn tool_details(details: Option<&Value>) -> Option<ToolDetails> {
         .get("meta")
         .and_then(|meta| meta.get("minimized"))
         .and_then(tool_minimized);
+    let tool_command = tool_command_name(details);
 
     // `async` is not a `task` fact: a background `bash` or `eval` call publishes the same marker,
     // and a call that returns that way forwards no later details frame, so a state read off one
@@ -638,6 +642,7 @@ pub(crate) fn tool_details(details: Option<&Value>) -> Option<ToolDetails> {
         && sources.is_empty()
         && answer.is_none()
         && minimized.is_none()
+        && tool_command.is_none()
     {
         return None;
     }
@@ -652,7 +657,28 @@ pub(crate) fn tool_details(details: Option<&Value>) -> Option<ToolDetails> {
         sources,
         answer,
         minimized,
+        tool_command,
     })
+}
+
+/// The one engine tool a `bash` call dispatched as a command, or none.
+///
+/// The engine records one dispatch per executed command word under `toolCommands` (its own
+/// `ToolCommandDispatch`). A row gets a card only when every executed dispatch names the same tool:
+/// a plain shell line has no record, a `--help` call runs nothing, and a line that ran two tools
+/// has no single card.
+fn tool_command_name(details: &Value) -> Option<String> {
+    let dispatches = details.get("toolCommands").and_then(Value::as_array)?;
+    let mut executed = dispatches
+        .iter()
+        .filter(|dispatch| dispatch.get("mode").and_then(Value::as_str) == Some("execute"));
+    let first = executed
+        .next()
+        .and_then(|dispatch| dispatch.get("tool"))
+        .and_then(Value::as_str)?;
+    let single =
+        executed.all(|dispatch| dispatch.get("tool").and_then(Value::as_str) == Some(first));
+    (!first.is_empty() && single).then(|| first.to_owned())
 }
 
 /// One shell call's minimizer record, from the engine's `meta.minimized`.

@@ -230,10 +230,7 @@ impl EventState {
                 self.close_message(app, session, event.get("message"), announced);
                 true
             }
-            "agent_end" => {
-                // The run's own record of what it wrote, before the turn is closed: a message whose
-                // frames were lost on the way here still has to reach the screen, and this frame is
-                // the last place its words exist on this side (see `repair_run`).
+            "agent_end" | "agent_pause" => {
                 self.repair_run(app, session, event);
                 if !ends_turn(event) {
                     return false;
@@ -908,11 +905,10 @@ impl EventState {
 
     /// Delivers the messages of a finished run whose own frames never reached this projector.
     ///
-    /// `agent_end` carries the run's own messages and is the one frame that states the turn's end,
-    /// so it is also the last place a lost answer exists on this side. A loss upstream is silent
-    /// here: no frame is missing from a sequence this side can count (the host numbers what it
-    /// sends, not what it drops), so the only way to see it is to compare the run's own record with
-    /// what was closed - which is what [`unclosed_messages`] does.
+    /// A run edge (`agent_end`, or an `agent_pause` that closes the turn) carries the run's own
+    /// messages, so it is the last place a lost answer exists on this side. A loss upstream is
+    /// silent here: no frame is missing from a sequence this side can count, so the only way to see
+    /// it is to compare the run's own record with what was closed ([`unclosed_messages`]).
     ///
     /// Each owed message is delivered through [`Self::close_message`], under the id its own
     /// announcement opened when that announcement did arrive (the reader's half-written row, dated

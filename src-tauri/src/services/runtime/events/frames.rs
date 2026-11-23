@@ -122,31 +122,34 @@ pub(crate) fn message_is_drawn(event: &Value) -> bool {
     }
 }
 
-/// Whether one `agent_end` frame closes the turn the reader is watching.
+/// Whether one run edge (`agent_end` or `agent_pause`) closes the turn the reader is watching.
 ///
-/// A run the agent resumes by itself — a retry, a compaction continuation, a stop-time reminder —
-/// reports `isTerminal: false`, and closing there would end a row the turn is still filling.
+/// The 19.1 engine emits `agent_end` once for a run, after nothing can resume it; every model loop
+/// that stops while the run goes on emits `agent_pause` instead. A pause closes the turn only when
+/// `yielded` and `awaiting`: the model finished its turn and only outside work (a background job, a
+/// child agent, a peer message) can resume the run — the 18.x `agent_end`+`awaitingAsyncWork` shape.
 ///
-/// `awaitingAsyncWork` is the exception: the agent finished its turn and only a background job's
-/// result can resume the session, which the engine reads as idle itself (its own TUI sets the status
-/// line to idle on exactly this frame). The wake is not guaranteed — a cancelled or suppressed job
-/// never delivers one — so keeping the turn open left 「运行中」 with a growing clock under a finished
-/// answer for hours (2026-10-30: 30 min of output ended, 150 min later still running). The stall
-/// watchdog will not reclaim that shape either, because it has pending async work. The job's own
-/// result opens a new turn (`agent_start` → `ensure_turn`) if it ever arrives.
+/// The wake is not guaranteed — a cancelled or suppressed job never delivers one — so keeping the
+/// turn open left 「运行中」 with a growing clock under a finished answer for hours (2026-10-30: 30
+/// min of output ended, 150 min later still running). The stall watchdog will not reclaim that
+/// shape either, because a wake source is pending. The job's own result opens a new turn
+/// (`agent_start` → `ensure_turn`) if it ever arrives. Any other pause keeps the row open: the
+/// session is continuing the model's own work (retry, compaction, reminders), or queued input is
+/// already on its way to the next loop.
 pub(super) fn ends_turn(event: &Value) -> bool {
-    // A superseded end: the host stamped the engine's own reading of the moment, and it says a run
+    // A superseded edge: the host stamped the engine's own reading of the moment, and it says a run
     // was already streaming (the engine defers an end until its prompt unwinds, so a post-turn
-    // continuation can be live before the frame is delivered — `agent-session.ts`). The engine's
-    // TUI refuses the same frame for the same reason. Closing here would take down the row of the
-    // run that is still going, and that run's own ending would then open an empty turn.
+    // continuation can be live before the frame is delivered — `agent-session.ts`). Closing here
+    // would take down the row of the run that is still going, and that run's own ending would then
+    // open an empty turn.
     if event.get("sessionStreaming").and_then(Value::as_bool) == Some(true) {
         return false;
     }
-    if event.get("isTerminal").and_then(Value::as_bool) != Some(false) {
-        return true;
+    if event.get("type").and_then(Value::as_str) == Some("agent_pause") {
+        return event.get("yielded").and_then(Value::as_bool) == Some(true)
+            && event.get("awaiting").and_then(Value::as_bool) == Some(true);
     }
-    event.get("awaitingAsyncWork").and_then(Value::as_bool) == Some(true)
+    true
 }
 
 pub(super) fn message_role(event: &Value) -> &'static str {
